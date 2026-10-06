@@ -557,6 +557,8 @@ function clientConfig(id: string, entry: string, clientBanner?: (fileName: strin
         const source = await readFile(fileId)
         const { code, exports: cssExports } = transform({
           filename: fileId,
+          // Hash the repository-relative path: absolute paths would rename every class per checkout location.
+          projectRoot: REPOSITORY_ROOT,
           code: source,
           cssModules: { pattern: '[hash]_[local]' },
           minify: true,
