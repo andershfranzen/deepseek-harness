@@ -2,9 +2,11 @@
  * Stylesheets enter client bundles through virtual modules, so the loader must
  * register their physical files as watch dependencies.
  */
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { transform } from 'lightningcss'
 import { describe, expect, it } from 'vitest'
 import { clientBundle } from '../packages/client/tsdown.client.ts'
 
@@ -48,6 +50,26 @@ describe('client bundle CSS Modules', () => {
     } finally {
       await rm(root, { recursive: true, force: true })
     }
+  })
+
+  it('names classes from the repository-relative stylesheet path, independent of the checkout location', async () => {
+    const relativePath = 'packages/client/ui-conversation/src/client/skeleton/InputBar.module.css'
+    const stylesheet = fileURLToPath(new URL(`../${relativePath}`, import.meta.url))
+    const plugin = cssPlugin('dsh-css-modules-inline')
+    const virtualId = plugin.resolveId?.(stylesheet, undefined)
+    if (typeof virtualId !== 'string' || plugin.load === undefined) {
+      throw new Error('CSS Modules plugin hooks are incomplete')
+    }
+
+    const output = await plugin.load.call({ addWatchFile: () => {} }, virtualId)
+    const classMap = JSON.parse(/export default (\{.*\});$/m.exec(output ?? '')?.[1] ?? 'null') as Record<string, string>
+    const { exports } = transform({
+      filename: relativePath,
+      code: await readFile(stylesheet),
+      cssModules: { pattern: '[hash]_[local]' },
+    })
+
+    expect(classMap.card).toBe(exports?.card?.name)
   })
 })
 
