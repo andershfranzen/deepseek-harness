@@ -1,0 +1,14 @@
+[Unit]
+Description=Deploy DeepSeek Harness and dsh-go from GitHub
+After=network-online.target
+Wants=network-online.target
+OnFailure=ntfy-failure@%n.service
+
+[Service]
+Type=oneshot
+User=a5
+Environment=HOME=/home/a5
+ExecStart=/usr/local/bin/dsh-deploy
+# A cold harness build takes several minutes.
+TimeoutStartSec=45min
+Nice=10

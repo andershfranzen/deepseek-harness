@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# Deploy DeepSeek Harness and the dsh-go plugin from GitHub to this host.
+#
+# Each harness commit on $HARNESS_BRANCH is built in its own worktree under $ROOT/releases/<sha>; $ROOT/current points at
+# the live one and is dsh.service's WorkingDirectory. The plugin is a clone at $ROOT/plugins/dsh-go installed into the
+# dsh profile. New commits are built while dsh keeps running; the switch and restart wait until no session has written
+# for $IDLE_MINUTES, then dsh must answer HTTP within $HEALTH_SECONDS or both are rolled back.
+#
+# Run by dsh-deploy.timer. Manual: `dsh-deploy` (deploy when idle), `dsh-deploy --now` (skip the idle wait),
+# `dsh-deploy --status`. ~/apps/deepseek-harness and ~/apps/dsh-go are development checkouts and are never touched.
+set -euo pipefail
+
+ROOT=${DSH_DEPLOY_ROOT:-$HOME/apps/dsh}
+HARNESS_REMOTE=${HARNESS_REMOTE:-https://github.com/andershfranzen/deepseek-harness.git}
+HARNESS_BRANCH=${HARNESS_BRANCH:-homelab}
+PLUGIN_REMOTE=${PLUGIN_REMOTE:-https://github.com/andershfranzen/dsh-go.git}
+PLUGIN_BRANCH=${PLUGIN_BRANCH:-main}
+PROFILE=${DSH_PROFILE:-web}
+IDLE_MINUTES=${IDLE_MINUTES:-10}
+HEALTH_SECONDS=${HEALTH_SECONDS:-120}
+KEEP_RELEASES=${KEEP_RELEASES:-3}
+PORT=${DSH_PORT:-3080}
+
+REPO=$ROOT/repo.git
+RELEASES=$ROOT/releases
+PLUGIN_DIR=$ROOT/plugins/dsh-go
+STATE=$ROOT/state
+PROFILE_DIR=$HOME/.dsh/profiles/$PROFILE
+
+log() { echo "[dsh-deploy] $*"; }
+notify() { command -v ntfy-send >/dev/null && ntfy-send "$1" "$2" "${3:-3}" "${4:-}" || true; }
+state() { cat "$STATE/$1" 2>/dev/null || true; }
+
+mkdir -p "$RELEASES" "$STATE" "$(dirname "$PLUGIN_DIR")"
+exec 9>"$ROOT/.lock"
+flock -n 9 || { log "another deploy is running"; exit 0; }
+
+if [[ ${1:-} == --status ]]; then
+  echo "current:  $(basename "$(readlink -f "$ROOT/current" 2>/dev/null || echo none)")"
+  echo "plugin:   $(state plugin.deployed)"
+  echo "pending:  harness=$(state harness.pending) plugin=$(state plugin.pending)"
+  echo "failed:   harness=$(state harness.failed) plugin=$(state plugin.failed)"
+  exit 0
+fi
+
+# --- fetch -------------------------------------------------------------------------------------------------------------
+[[ -d $REPO ]] || git clone -q --bare "$HARNESS_REMOTE" "$REPO"
+# Network failures are transient: skip this run instead of alerting.
+git -C "$REPO" fetch -q --prune origin "+refs/heads/$HARNESS_BRANCH:refs/heads/$HARNESS_BRANCH" || { log "harness fetch failed"; exit 0; }
+want_h=$(git -C "$REPO" rev-parse "refs/heads/$HARNESS_BRANCH")
+
+[[ -d $PLUGIN_DIR/.git ]] || git clone -q --branch "$PLUGIN_BRANCH" "$PLUGIN_REMOTE" "$PLUGIN_DIR"
+git -C "$PLUGIN_DIR" fetch -q origin "$PLUGIN_BRANCH" || { log "plugin fetch failed"; exit 0; }
+want_p=$(git -C "$PLUGIN_DIR" rev-parse FETCH_HEAD)
+
+cur_h=$(basename "$(readlink -f "$ROOT/current" 2>/dev/null || echo none)")
+cur_p=$(state plugin.deployed)
+
+# A commit that failed to build or start is skipped until the branch moves on.
+[[ $want_h == "$(state harness.failed)" ]] && want_h=$cur_h
+[[ $want_p == "$(state plugin.failed)" ]] && want_p=$cur_p
+if [[ $want_h == "$cur_h" && $want_p == "$cur_p" ]]; then
+  rm -f "$STATE/harness.pending" "$STATE/plugin.pending"
+  exit 0
+fi
+
+# --- build the harness release off to the side ----------------------------------------------------------------------
+release=$RELEASES/$want_h
+if [[ $want_h != "$cur_h" && ! -e $release/.dsh-built ]]; then
+  log "building harness ${want_h:0:10}"
+  rm -rf "$release"
+  git -C "$REPO" worktree prune
+  git -C "$REPO" worktree add -q --detach "$release" "$want_h"
+  if ! (cd "$release" && pnpm install --frozen-lockfile && pnpm run build) >"$release.build.log" 2>&1; then
+    echo "$want_h" >"$STATE/harness.failed"
+    tail -20 "$release.build.log"
+    notify "dsh deploy: build failed" "Harness ${want_h:0:10} did not build; still running ${cur_h:0:10}. Log: $release.build.log" 4 warning
+    exit 1
+  fi
+  touch "$release/.dsh-built"
+  log "built harness ${want_h:0:10}"
+fi
+echo "$want_h" >"$STATE/harness.pending"
+echo "$want_p" >"$STATE/plugin.pending"
+
+# --- wait for idle ---------------------------------------------------------------------------------------------------
+if [[ ${1:-} != --now ]] && find "$HOME/.dsh/sessions" -name 'session*.jsonl*' -mmin "-$IDLE_MINUTES" -print -quit 2>/dev/null | grep -q .; then
+  log "update ready (harness ${want_h:0:10}, plugin ${want_p:0:7}); waiting until sessions are idle for $IDLE_MINUTES min"
+  exit 0
+fi
+
+# --- activate --------------------------------------------------------------------------------------------------------
+install_plugin() { # $1 = plugin commit, $2 = harness release dir that runs the dsh CLI
+  git -C "$PLUGIN_DIR" -c advice.detachedHead=false checkout -q --force "$1"
+  # pnpm keeps a stale copy of a file: dependency unless the copy and its install-state cache are removed.
+  node -e 'const f=process.argv[1],p=require(f);p.dependencies["dsh-go"]="file:"+process.argv[2];require("fs").writeFileSync(f,JSON.stringify(p,null,2)+"\n")' \
+    "$PROFILE_DIR/package.json" "$PLUGIN_DIR"
+  rm -rf "$PROFILE_DIR/node_modules/dsh-go" "$PROFILE_DIR"/node_modules/.pnpm/dsh-go@* "$PROFILE_DIR/node_modules/.pnpm-workspace-state-v1.json"
+  (cd "$2" && pnpm dsh plugin --profile "$PROFILE" install)
+}
+
+healthy() {
+  local deadline=$((SECONDS + HEALTH_SECONDS)) code
+  while ((SECONDS < deadline)); do
+    sleep 3
+    systemctl is-active -q dsh || continue
+    code=$(curl -s -o /dev/null -m 5 -w '%{http_code}' "http://127.0.0.1:$PORT/" || true)
+    [[ $code == 200 || $code == 401 ]] && return 0
+  done
+  return 1
+}
+
+switch_to() { # $1 = harness sha, $2 = plugin commit
+  ln -sfn "releases/$1" "$ROOT/current.next" && mv -T "$ROOT/current.next" "$ROOT/current"
+  install_plugin "$2" "$RELEASES/$1"
+  sudo systemctl restart dsh
+}
+
+log "activating harness ${want_h:0:10}, plugin ${want_p:0:7}"
+if switch_to "$want_h" "$want_p" >>"$STATE/activate.log" 2>&1 && healthy; then
+  echo "$want_p" >"$STATE/plugin.deployed"
+  rm -f "$STATE/harness.pending" "$STATE/plugin.pending" "$STATE/harness.failed" "$STATE/plugin.failed"
+  log "live: harness ${want_h:0:10}, plugin ${want_p:0:7}"
+  notify "dsh deployed" "Harness ${want_h:0:10}, dsh-go ${want_p:0:7}" 2 rocket
+else
+  log "dsh did not come up; rolling back to harness ${cur_h:0:10}, plugin ${cur_p:0:7}"
+  [[ $want_h != "$cur_h" ]] && echo "$want_h" >"$STATE/harness.failed"
+  [[ $want_p != "$cur_p" ]] && echo "$want_p" >"$STATE/plugin.failed"
+  if [[ -d $RELEASES/$cur_h && -n $cur_p ]] && switch_to "$cur_h" "$cur_p" >>"$STATE/activate.log" 2>&1 && healthy; then
+    notify "dsh deploy rolled back" "Harness ${want_h:0:10} / dsh-go ${want_p:0:7} did not start; back on ${cur_h:0:10} / ${cur_p:0:7}. See journalctl -u dsh" 4 warning
+  else
+    notify "dsh is DOWN" "Deploy of ${want_h:0:10} failed and rollback did not recover. See journalctl -u dsh -u dsh-deploy" 5 rotating_light
+  fi
+  exit 1
+fi
+
+# --- prune old releases (keep the newest $KEEP_RELEASES built ones, always including current) ----------------------
+live=$(readlink -f "$ROOT/current")
+ls -1dt "$RELEASES"/*/ 2>/dev/null | sed 's:/$::' | tail -n "+$((KEEP_RELEASES + 1))" | while read -r old; do
+  [[ $old == "$live" ]] && continue
+  git -C "$REPO" worktree remove --force "$old" 2>/dev/null || rm -rf "$old"
+  rm -f "$old.build.log"
+done
+git -C "$REPO" worktree prune

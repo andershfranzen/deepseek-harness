@@ -1,0 +1,20 @@
+[Unit]
+Description=DeepSeek Harness web UI (https://dsh.taile2ec74.ts.net)
+After=network-online.target
+Wants=network-online.target
+OnFailure=ntfy-failure@%n.service
+
+[Service]
+User=a5
+# The live release, switched by dsh-deploy; ~/apps/deepseek-harness is the development checkout.
+WorkingDirectory=/home/a5/apps/dsh/current
+# Only root (tailscaled) and a5 may connect to the loopback listener: other local
+# users could otherwise forge the Tailscale-User-Login header that signs in.
+ExecStartPre=+/bin/sh -c 'iptables -C OUTPUT -o lo -p tcp --dport 3080 -m owner ! --uid-owner root -m owner ! --uid-owner a5 -j REJECT --reject-with tcp-reset 2>/dev/null || iptables -I OUTPUT -o lo -p tcp --dport 3080 -m owner ! --uid-owner root -m owner ! --uid-owner a5 -j REJECT --reject-with tcp-reset'
+ExecStopPost=+/bin/sh -c 'iptables -D OUTPUT -o lo -p tcp --dport 3080 -m owner ! --uid-owner root -m owner ! --uid-owner a5 -j REJECT --reject-with tcp-reset 2>/dev/null || true'
+ExecStart=/usr/bin/pnpm dsh web --no-open --port 3080 --public-url https://dsh.taile2ec74.ts.net/ --trusted-host dsh.taile2ec74.ts.net
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
