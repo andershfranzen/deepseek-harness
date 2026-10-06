@@ -55,13 +55,15 @@ function createAuth(
   store: RecordCredentials,
   maxAgeDays = 30,
   processOwner: object = {},
+  tailscaleLogins: readonly string[] = [],
 ): Promise<BrowserAuth> {
-  return BrowserAuth.create(processOwner, credentials(store), maxAgeDays)
+  return BrowserAuth.create(processOwner, credentials(store), maxAgeDays, tailscaleLogins)
 }
 
 function request(url: string, authority = '127.0.0.1:3080', init?: {
   cookie?: string
   method?: string
+  tailscaleLogin?: string
 }): ConnectionIndexRequest {
   return {
     method: init?.method ?? 'GET',
@@ -69,6 +71,7 @@ function request(url: string, authority = '127.0.0.1:3080', init?: {
     headers: {
       host: authority,
       ...init?.cookie === undefined ? {} : { cookie: init.cookie },
+      ...init?.tailscaleLogin === undefined ? {} : { 'tailscale-user-login': init.tailscaleLogin },
     },
   }
 }
@@ -187,6 +190,41 @@ describe('BrowserAuth', () => {
       expect(denied.state.body).toBe(candidate.method === 'HEAD'
         ? undefined
         : 'dsh web authentication required; reopen the URL printed by dsh web.\n')
+    }
+  })
+
+  it('mints the cookie for a configured Tailscale login and ignores every other header', async () => {
+    const authority = 'dsh.example.ts.net'
+    const auth = await createAuth(new RecordCredentials(), 30, {}, ['alice@example.com'])
+    const signedIn = response()
+    expect(auth.authorizeIndex(
+      request('/', authority, { tailscaleLogin: 'alice@example.com' }), signedIn.value,
+    )).toBe(false)
+    expect(signedIn.state).toMatchObject({ status: 303, headers: { location: './' } })
+    const setCookie = signedIn.state.headers?.['set-cookie']
+    if (setCookie === undefined) throw new Error('Tailscale sign-in did not set a cookie')
+    const cookie = setCookie.split(';', 1)[0]!
+    expect(auth.isAuthenticated(request('/', authority, { cookie }))).toBe(true)
+    // The header only mints on the index; /api requests still require the cookie.
+    expect(auth.isAuthenticated(request('/', authority, { tailscaleLogin: 'alice@example.com' }))).toBe(false)
+    const served = response()
+    expect(auth.authorizeIndex(
+      request('/', authority, { cookie, tailscaleLogin: 'alice@example.com' }), served.value,
+    )).toBe(true)
+    expect(served.state).toEqual({})
+
+    const disabled = await createAuth(new RecordCredentials())
+    for (const [owner, candidate] of [
+      [auth, request('/', authority, { tailscaleLogin: 'mallory@example.com' })],
+      [auth, request('/', authority)],
+      [auth, request('/', authority, { tailscaleLogin: 'alice@example.com', method: 'HEAD' })],
+      [auth, request('/index.html', authority, { tailscaleLogin: 'alice@example.com' })],
+      [auth, request('/?token=wrong', authority, { tailscaleLogin: 'alice@example.com' })],
+      [disabled, request('/', authority, { tailscaleLogin: 'alice@example.com' })],
+    ] as const) {
+      const denied = response()
+      expect(owner.authorizeIndex(candidate, denied.value)).toBe(false)
+      expect(denied.state.status).toBe(401)
     }
   })
 

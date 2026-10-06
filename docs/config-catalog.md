@@ -455,6 +455,13 @@ export interface ConnectionConfig {
   trustedHosts?: string[]
   /** Absolute browser-session lifetime in days. Default: 30. */
   cookieMaxAgeDays?: number
+  /**
+   * Tailscale logins (`Tailscale-User-Login`, e.g. `alice@example.com`) that
+   * sign in without the launch token. Enable only behind `tailscale serve`
+   * with the listener unreachable by untrusted local processes, because the
+   * header is trusted as-is. Default: none.
+   */
+  tailscaleLogins?: string[]
   /** Maximum buffered JSON body for every `/api` request. Default: 300 MiB. */
   maxRequestBodyBytes?: number
 }
