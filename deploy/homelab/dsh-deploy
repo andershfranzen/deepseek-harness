@@ -21,7 +21,7 @@ HEALTH_SECONDS=${HEALTH_SECONDS:-120}
 KEEP_RELEASES=${KEEP_RELEASES:-3}
 PORT=${DSH_PORT:-3080}
 
-REPO=$ROOT/repo.git
+REPO=$ROOT/repo
 RELEASES=$ROOT/releases
 PLUGIN_DIR=$ROOT/plugins/dsh-go
 STATE=$ROOT/state
@@ -36,7 +36,7 @@ exec 9>"$ROOT/.lock"
 flock -n 9 || { log "another deploy is running"; exit 0; }
 
 if [[ ${1:-} == --status ]]; then
-  echo "current:  $(basename "$(readlink -f "$ROOT/current" 2>/dev/null || echo none)")"
+  echo "current:  $(basename "$(readlink "$ROOT/current" 2>/dev/null || echo none)")"
   echo "plugin:   $(state plugin.deployed)"
   echo "pending:  harness=$(state harness.pending) plugin=$(state plugin.pending)"
   echo "failed:   harness=$(state harness.failed) plugin=$(state plugin.failed)"
@@ -44,16 +44,17 @@ if [[ ${1:-} == --status ]]; then
 fi
 
 # --- fetch -------------------------------------------------------------------------------------------------------------
-[[ -d $REPO ]] || git clone -q --bare "$HARNESS_REMOTE" "$REPO"
+# A regular clone without a checkout: the harness postinstall (lefthook) refuses worktrees of a bare repository.
+[[ -d $REPO/.git ]] || git clone -q --no-checkout "$HARNESS_REMOTE" "$REPO"
 # Network failures are transient: skip this run instead of alerting.
-git -C "$REPO" fetch -q --prune origin "+refs/heads/$HARNESS_BRANCH:refs/heads/$HARNESS_BRANCH" || { log "harness fetch failed"; exit 0; }
-want_h=$(git -C "$REPO" rev-parse "refs/heads/$HARNESS_BRANCH")
+git -C "$REPO" fetch -q --prune origin "+refs/heads/$HARNESS_BRANCH:refs/remotes/origin/$HARNESS_BRANCH" || { log "harness fetch failed"; exit 0; }
+want_h=$(git -C "$REPO" rev-parse "refs/remotes/origin/$HARNESS_BRANCH")
 
 [[ -d $PLUGIN_DIR/.git ]] || git clone -q --branch "$PLUGIN_BRANCH" "$PLUGIN_REMOTE" "$PLUGIN_DIR"
 git -C "$PLUGIN_DIR" fetch -q origin "$PLUGIN_BRANCH" || { log "plugin fetch failed"; exit 0; }
 want_p=$(git -C "$PLUGIN_DIR" rev-parse FETCH_HEAD)
 
-cur_h=$(basename "$(readlink -f "$ROOT/current" 2>/dev/null || echo none)")
+cur_h=$(basename "$(readlink "$ROOT/current" 2>/dev/null || echo none)")
 cur_p=$(state plugin.deployed)
 
 # A commit that failed to build or start is skipped until the branch moves on.
