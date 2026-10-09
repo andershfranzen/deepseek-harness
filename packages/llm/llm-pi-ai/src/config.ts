@@ -39,6 +39,9 @@ import type {
   PiAiModelOverride,
   PiAiModelProfile,
   PiAiReasoningEfforts,
+  PiAiSpeedTier,
+  PiAiSpeedTiers,
+  ResolvedPiAiSpeedTier,
   RouteCatalog,
 } from './catalog.ts'
 import { buildProvider, supportedProtocols } from './provider.ts'
@@ -85,7 +88,10 @@ export type {
   PiAiModelOverride,
   PiAiModelProfile,
   PiAiReasoningEfforts,
+  PiAiSpeedTier,
+  PiAiSpeedTiers,
   PiAiThinkingFormat,
+  ResolvedPiAiSpeedTier,
 } from './catalog.ts'
 
 /** Configuration for one pi-ai provider route; the `providers` dict key IS the route. */
@@ -125,6 +131,13 @@ export interface PiAiProviderProfile {
    * refused rather than left looking applied.
    */
   compat?: PiAiCompatProfile
+  /**
+   * Speed tiers every model on this route offers beside the standard tier,
+   * keyed by tier id. A model's own `speedTiers` replaces this dict, and
+   * `false` there offers only the standard tier. A request naming a tier
+   * merges its `body` into the provider payload and adds its `headers`.
+   */
+  speedTiers?: PiAiSpeedTiers
   /**
    * Context capacity for a model this route lists that neither the entry nor
    * the installed catalog sizes (default 262,144). A guess by construction, so
@@ -184,7 +197,7 @@ export interface PiAiProviderProfile {
 
 /** Validated profile with its route stamped and every adapter-owned default resolved. */
 export interface ResolvedPiAiProviderProfile
-  extends Omit<PiAiProviderProfile, 'apiKeyEnv' | 'retryPolicy' | 'models' | 'displayName'> {
+  extends Omit<PiAiProviderProfile, 'apiKeyEnv' | 'retryPolicy' | 'models' | 'displayName' | 'speedTiers'> {
   /** Harness route key and the `Models` collection key (the configuration dict key). */
   provider: string
   /** Resolved display name for selectors and configuration surfaces. */
@@ -216,6 +229,8 @@ export interface ResolvedPiAiProviderProfile
    * own, so a catalog capability must not appear here.
    */
   configuredMaxTokens: ReadonlyMap<string, number>
+  /** Validated speed tiers by model id; a model absent here offers only the standard tier. */
+  modelSpeedTiers: ReadonlyMap<string, readonly ResolvedPiAiSpeedTier[]>
 }
 
 /** Plugin configuration: the provider routes this instance owns. */
@@ -299,6 +314,19 @@ const reasoningEfforts = z.dict(
   z.union(THINKING_LEVELS),
 ) as unknown as z<PiAiReasoningEfforts>
 
+/**
+ * One speed tier. `body` takes any JSON payload fields; resolution refuses an
+ * empty body, an empty name, and headers Fetch cannot send.
+ */
+const speedTier: z<PiAiSpeedTier> = z.object({
+  name: z.string().required(),
+  description: z.string(),
+  body: z.dict(z.any()).required(),
+  headers: z.dict(z.string()),
+})
+
+const speedTiers: z<PiAiSpeedTiers> = z.dict(speedTier)
+
 /** The fields a `models` entry and a `modelOverrides` value share; only the id's home differs. */
 const modelFields = {
   name: z.string(),
@@ -312,6 +340,8 @@ const modelFields = {
   // `{}`, and absent must stay distinguishable — it means "inherit the
   // installed catalog's capability", while `false` disables reasoning.
   reasoningEfforts: z.union([z.const(false), reasoningEfforts]),
+  // A union for the same reason: absent inherits the route's tiers.
+  speedTiers: z.union([z.const(false), speedTiers]),
   compat: compatProfile,
 }
 
@@ -331,6 +361,7 @@ const profile = z.object({
   models: z.array(modelProfile),
   modelOverrides: z.dict(modelOverride),
   compat: compatProfile,
+  speedTiers,
   defaultContextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW),
   defaultMaxTokens: z.number().step(1).min(1).default(DEFAULT_MAX_TOKENS),
   defaultInput: z.array(z.union(MODALITIES)).default([...DEFAULT_INPUT]),
@@ -470,6 +501,7 @@ export function resolveProfiles(
         ...source.models === undefined ? {} : { models: source.models },
         ...source.modelOverrides === undefined ? {} : { modelOverrides: source.modelOverrides },
         ...source.compat === undefined ? {} : { compat: source.compat },
+        ...source.speedTiers === undefined ? {} : { speedTiers: source.speedTiers },
         defaultInput,
         defaultContextWindow: source.defaultContextWindow ?? DEFAULT_CONTEXT_WINDOW,
         defaultMaxTokens: source.defaultMaxTokens ?? DEFAULT_MAX_TOKENS,
@@ -487,7 +519,7 @@ export function resolveProfiles(
       if (validation === 'strict' || !(error instanceof PiAiCatalogError)) throw error
       catalogError ??= error.message
     }
-    const { apiKeyEnv, retryPolicy, models: _models, displayName: _displayName, ...rest } = source
+    const { apiKeyEnv, retryPolicy, models: _models, displayName: _displayName, speedTiers: _speedTiers, ...rest } = source
     resolved.set(provider, {
       ...rest,
       provider,
@@ -501,6 +533,7 @@ export function resolveProfiles(
       ...rest.headers === undefined ? {} : { headers: { ...rest.headers } },
       ...rest.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...rest.thinkingBudgets } },
       configuredMaxTokens: catalog?.configuredMaxTokens ?? new Map(),
+      modelSpeedTiers: catalog?.speedTiers ?? new Map(),
       modelErrors: catalog?.modelErrors ?? new Map(),
       ...piProvider === undefined ? {} : { piProvider },
       ...catalogError === undefined ? {} : { catalogError },

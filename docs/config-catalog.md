@@ -50,6 +50,8 @@ export interface Config {
   model: Volatile<string>
   /** Adapter-owned reasoning effort; omission follows the provider default. */
   reasoningEffort: Volatile<string | undefined>
+  /** Adapter-owned speed tier; omission requests the standard tier. */
+  speed: Volatile<string | undefined>
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-agent-default-model -->
@@ -1617,7 +1619,7 @@ export interface Config extends ProtocolConfig {
 
 - `inject`: `llm`
 - `refs`: `Api` (`@earendil-works/pi-ai`) · `CacheRetention` (`@earendil-works/pi-ai`) · `Model` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · `OpenAICompletionsCompat` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`) · `Volatile` (`@deepseek-ai/cordis`)
-- `source`: [`packages/llm/llm-pi-ai/src/config.ts:222`](../packages/llm/llm-pi-ai/src/config.ts)
+- `source`: [`packages/llm/llm-pi-ai/src/config.ts:237`](../packages/llm/llm-pi-ai/src/config.ts)
 
 ```ts config-catalog
 /** Plugin configuration: the provider routes this instance owns. */
@@ -1667,6 +1669,13 @@ export interface PiAiProviderProfile {
    * refused rather than left looking applied.
    */
   compat?: PiAiCompatProfile
+  /**
+   * Speed tiers every model on this route offers beside the standard tier,
+   * keyed by tier id. A model's own `speedTiers` replaces this dict, and
+   * `false` there offers only the standard tier. A request naming a tier
+   * merges its `body` into the provider payload and adds its `headers`.
+   */
+  speedTiers?: PiAiSpeedTiers
   /**
    * Context capacity for a model this route lists that neither the entry nor
    * the installed catalog sizes (default 262,144). A guess by construction, so
@@ -1759,6 +1768,12 @@ export interface PiAiModelProfile {
    * declares the offered levels and their wire spellings.
    */
   reasoningEfforts?: false | PiAiReasoningEfforts
+  /**
+   * Selectable speed tiers. Absent inherits the route's
+   * {@link RouteCatalogRequest.speedTiers}; `false` offers only the standard
+   * tier; a non-empty dict replaces the route's tiers for this model.
+   */
+  speedTiers?: false | PiAiSpeedTiers
   /** pi-ai wire-compatibility switches for this model, winning over the route's per field; one its protocol does not declare is refused. */
   compat?: PiAiCompatProfile
 }
@@ -1864,6 +1879,9 @@ export interface PiAiCompatProfile {
   supportsStrictTools?: boolean
 }
 
+/** Speed tiers keyed by their non-empty tier id, in display order. */
+export type PiAiSpeedTiers = Record<string, PiAiSpeedTier>
+
 /** One request modality a pi-ai model may accept. */
 export type PiAiModality = Model<Api>['input'][number]
 
@@ -1882,6 +1900,22 @@ export type PiAiThinkingFormat = NonNullable<OpenAICompletionsCompat['thinkingFo
 
 /** The reasoning-budget field spellings pi-ai accepts. */
 export type PiAiThinkingTokenBudgetField = NonNullable<OpenAICompletionsCompat['thinkingTokenBudgetField']>
+
+/**
+ * One selectable speed tier. A request naming the tier merges {@link body}
+ * into the provider payload at the top level, replacing same-named fields, and
+ * adds {@link headers}; a request naming no tier sends neither.
+ */
+export interface PiAiSpeedTier {
+  /** Name shown by model selectors. */
+  name: string
+  /** Optional selector hint, such as the tier's usage cost. */
+  description?: string
+  /** Non-empty top-level JSON payload fields, such as `{ service_tier: priority }`. */
+  body: Record<string, unknown>
+  /** Extra request headers; Harness attribution headers win name collisions. */
+  headers?: Record<string, string>
+}
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-llm-pi-ai -->
 
@@ -4072,6 +4106,23 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-typert-loader -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-ultracode-mode -->
+<a id="deepseek-aidsh-ultracode-mode"></a>
+
+## `@deepseek-ai/dsh-ultracode-mode`
+
+- `inject`: `systemPrompt` · `sessionProjections`
+- `source`: [`packages/workflow/ultracode-mode/src/index.ts:67`](../packages/workflow/ultracode-mode/src/index.ts)
+
+```ts config-catalog
+/** Deployment-owned ultracode guidance. */
+export interface UltracodeModeConfig {
+  /** Guidance rendered as the `ultracode:policy` prompt section while ultracode is active. */
+  section: string
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-ultracode-mode -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-user-approval -->
 <a id="deepseek-aidsh-user-approval"></a>
 
@@ -4405,6 +4456,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 | `@deepseek-ai/dsh-client-ui-subagent` | — | [`packages/client/ui-subagent/src/index.ts`](../packages/client/ui-subagent/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-tool` | — | [`packages/client/ui-tool/src/index.ts`](../packages/client/ui-tool/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-trajectory` | — | [`packages/client/ui-trajectory/src/index.ts`](../packages/client/ui-trajectory/src/index.ts) |
+| `@deepseek-ai/dsh-client-ui-ultracode` | — | [`packages/client/ui-ultracode/src/index.ts`](../packages/client/ui-ultracode/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-user-questions` | — | [`packages/client/ui-user-questions/src/index.ts`](../packages/client/ui-user-questions/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-workflow-run` | — | [`packages/client/ui-workflow-run/src/index.ts`](../packages/client/ui-workflow-run/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-workspace` | — | [`packages/client/ui-workspace/src/index.ts`](../packages/client/ui-workspace/src/index.ts) |

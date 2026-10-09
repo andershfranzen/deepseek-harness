@@ -110,6 +110,7 @@ export class InputHub implements SessionInputResolver {
           ...selection == null ? {} : { model: Object.freeze({
             provider: selection.provider, name: selection.model,
             ...selection.reasoningEffort === undefined ? {} : { effort: selection.reasoningEffort },
+            ...selection.speed === undefined ? {} : { speed: selection.speed },
           }) },
           runMode: plan?.active ? 'plan' : goal?.goal.phase === 'active' ? 'goal' : 'default',
           running: state.running,

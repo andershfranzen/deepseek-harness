@@ -533,6 +533,13 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Folds logged plan/mode state, flushes user selections at turn boundaries, renders deployment-owned guidance, registers /plan, and keeps the plan-exit schema stable across transitions.',
   },
   {
+    key: 'ultracodeMode',
+    pkg: 'ultracode-mode',
+    title: 'Ultracode orchestration mode',
+    mode: 'core',
+    note: 'Folds logged ultracode/mode state, commits pending selections at the next accepted pre-step, renders deployment-owned orchestration guidance while on, and registers /ultracode.',
+  },
+  {
     key: 'agentPresets',
     pkg: 'agent-preset-registry',
     title: 'Per-session agent composition',

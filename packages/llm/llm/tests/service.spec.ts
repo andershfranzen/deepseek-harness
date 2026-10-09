@@ -11,6 +11,7 @@ import LlmRuntime, {
   LlmError,
   ProviderRequestId,
   ReasoningEffortId,
+  SpeedTierId,
   resolveRetryPolicy,
   StreamChunk,
   createMessage,
@@ -853,6 +854,49 @@ describe('LlmRuntime', () => {
         .rejects.toMatchObject({ code: 'INVALID_MODEL_MAX_TOKENS' })
     },
   )
+
+  it('detaches advertised speed tiers and refuses an unadvertised speed before dispatch', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    const speed = { tiers: [{ id: SpeedTierId('fast'), name: 'Fast', description: 'Priority processing' }] }
+    ctx.llm.registerAdapter(['route'], new class extends ScriptedAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({ provider, id: model, name: model, ...model === 'tiered' ? { speed } : {} })
+      }
+    }(SCRIPT))
+
+    const resolved = await ctx.llm.resolveModelInfo('route', 'tiered')
+    expect(resolved.speed).toEqual(speed)
+    expect(resolved.speed).not.toBe(speed)
+    const prepared = await ctx.llm.prepareCall({ provider: 'route', model: 'tiered', speed: SpeedTierId('fast') })
+    expect(prepared.config.speed).toBe('fast')
+    expect(prepared.adapterDefaults).toEqual({})
+    const standard = await ctx.llm.prepareCall({ provider: 'route', model: 'tiered' })
+    expect(standard.config).not.toHaveProperty('speed')
+    await expect(ctx.llm.prepareCall({ provider: 'route', model: 'tiered', speed: SpeedTierId('ultra') }))
+      .rejects.toMatchObject({ code: 'UNSUPPORTED_SPEED_TIER', message: /speed tier "ultra"/ })
+    await expect(ctx.llm.resolveCallConfig({ provider: 'route', model: 'plain', speed: SpeedTierId('fast') }))
+      .rejects.toMatchObject({ code: 'UNSUPPORTED_SPEED_TIER' })
+  })
+
+  it.each([
+    [{ tiers: [] }, 'empty tier list'],
+    [{ tiers: [{ id: '', name: 'Empty' }] }, 'empty id'],
+    [{ tiers: [{ id: 'fast', name: '' }] }, 'empty name'],
+    [{ tiers: [{ id: 'fast', name: 'Fast', description: 1 }] }, 'non-string description'],
+    [{ tiers: [{ id: 'fast', name: 'One' }, { id: 'fast', name: 'Two' }] }, 'duplicate id'],
+  ] as const)('rejects invalid model speed metadata (%s: %s)', async (metadata, _label) => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    ctx.llm.registerAdapter(['route'], new class extends ScriptedAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        // Deliberately malformed adapter output; the runtime validates it.
+        return Promise.resolve({ provider, id: model, name: model, speed: metadata as NonNullable<LlmResolvedModelInfo['speed']> })
+      }
+    }(SCRIPT))
+    await expect(ctx.llm.resolveModelInfo('route', 'model'))
+      .rejects.toMatchObject({ code: 'INVALID_MODEL_SPEED' })
+  })
 
   it.each([
     [{ efforts: [] }, 'empty effort list'],

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment'
-import { ToolCallId, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { SpeedTierId, ToolCallId, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionHeader } from '@deepseek-ai/dsh-session'
 import { SessionPersistenceRevision, type SessionPersistenceSnapshot } from '@deepseek-ai/dsh-session-persistence'
@@ -312,6 +312,29 @@ describe('automation-only ACP bridge', () => {
     expect(resumed.configOptions?.find(option => option.id === 'model')).toMatchObject({
       currentValue: '["mock","mock"]',
     })
+  })
+
+  it('restores a logged speed tier on resume', async () => {
+    harness = await makeBridgeHarness({ script: [textResponse('fast'), textResponse('restored')] })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const created = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    // Another frontend selected the tier; ACP itself offers no speed option.
+    const selectFast = harness.ctx.on('session/event', (session, event) => {
+      if (event.type !== 'request/header' || event.data.header.config.speed !== undefined) return
+      const { header } = event.data
+      // Observers cannot append reentrantly; the turn is still open after this microtask.
+      queueMicrotask(() => {
+        session.append('request/header', { header: { ...header, config: { ...header.config, speed: SpeedTierId('fast') } }, reason: 'change' })
+      })
+    })
+    await harness.client.prompt({ sessionId: created.sessionId, prompt: [{ type: 'text', text: 'standard' }] })
+    selectFast()
+    await harness.client.closeSession({ sessionId: created.sessionId })
+
+    await harness.client.resumeSession({ sessionId: created.sessionId, cwd: process.cwd() })
+    await harness.client.prompt({ sessionId: created.sessionId, prompt: [{ type: 'text', text: 'go' }] })
+
+    expect(harness.adapter.requests.map(request => request.speed)).toEqual([undefined, 'fast'])
   })
 
   it('restores an explicitly selected reasoning effort', async () => {

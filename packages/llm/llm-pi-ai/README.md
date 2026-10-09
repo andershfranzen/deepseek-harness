@@ -80,6 +80,7 @@ Each profile may set a `retryPolicy`; omission uses normal mode with five retrie
 | `baseURL` | catalog endpoint | Endpoint of every model on the route |
 | `models` | installed catalog | Replaces the route's catalog wholesale; each entry defaults from the installed model |
 | `modelOverrides` | none | Reshapes individual installed-catalog models without replacing the rest |
+| `speedTiers` | none | Speed tiers offered beside the standard tier; a model's own value replaces the route's |
 | `compat` | catalog detection | Wire-compatibility switches for unrecognized endpoints |
 | `defaultContextWindow` | `262,144` | Capacity fallback for undescribed models |
 | `defaultMaxTokens` | `32,768` | Output-cap fallback for undescribed models |
@@ -103,6 +104,33 @@ A profile's `models` list replaces the route's installed catalog rather than ext
 `reasoningEfforts` declares a model's selectable thinking levels: each key is a level selectors offer, its value the spelling dispatch sends on the wire, so `max: ultra` renames a level for a gateway with its own vocabulary. Omitting the field keeps the installed catalog entry's capability; `false` declares a non-reasoning model. `compat` switches reshape the request for endpoints pi-ai cannot recognize — which role carries the system prompt, which field caps output, how a thinking level travels — configurable per route and per model. A model neither the entry nor the installed catalog sizes takes the route's `defaultContextWindow` and `defaultMaxTokens` fallbacks.
 
 For self-hosted Chat Completions endpoints, `thinkingTokenBudgetField` selects the reasoning-budget parameter, and `vllmPriority` sets an integer scheduler priority when the server enables priority scheduling. Template arguments accept `$var: thinking.budget`. `openai-responses` gateways can set `supportsMaxOutputTokens: false` to omit `max_output_tokens`; Azure and Codex transports ignore this shared compatibility field. These controls are opt-in; catalog-owned Anthropic effort and fallback capabilities are not configurable switches.
+
+### Offer speed tiers
+
+`speedTiers` declares the speed tiers a model offers beside the standard tier, keyed by tier id. A route-level dict applies to every model on the route; a model's own `speedTiers` replaces it, and `false` offers only the standard tier. Each tier has a `name`, an optional `description`, a non-empty `body` that a request naming the tier merges into the provider payload at the top level, and optional `headers`; Harness attribution headers win name collisions. A request without a speed tier sends neither, and a request naming a tier the model does not offer fails with `UNSUPPORTED_SPEED_TIER` before dispatch. `modelOverrides` entries accept the same field.
+
+```yaml
+providers:
+  homelab-openai:
+    api: openai-responses
+    baseURL: https://gateway.example/v1
+    speedTiers:
+      fast:
+        name: Fast
+        description: Priority processing, higher usage
+        body: { service_tier: priority }
+    models:
+      - id: gpt-6-astra
+        speedTiers:
+          fast:
+            name: Fast
+            body: { service_tier: priority }
+          ultrafast:
+            name: Ultrafast
+            body: { service_tier: ultrafast }
+      - id: gpt-6-mini
+        speedTiers: false
+```
 
 ### Change configuration at runtime
 

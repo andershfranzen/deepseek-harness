@@ -552,7 +552,7 @@ export class ReactLoopAgent implements Agent {
     const { session } = this
 
     // A loop instance starts from its declared route, restoring only an explicit
-    // effort owned by that exact model. Later steps re-resolve marked defaults.
+    // effort or speed owned by that exact model. Later steps re-resolve marked defaults.
     const persistedHeader = session.requestHeader()
     const persistedConfig = persistedHeader?.config
     const route = { provider: this.options.provider ?? '', model: this.options.model ?? '' }
@@ -562,6 +562,10 @@ export class ReactLoopAgent implements Agent {
       ? persistedConfig.reasoningEffort
       : undefined
     const reasoningEffort = this.options.reasoningEffort ?? persistedReasoningEffort
+    const persistedSpeed = persistedConfig?.provider === route.provider && persistedConfig.model === route.model
+      ? persistedConfig.speed
+      : undefined
+    const speed = this.options.speed ?? persistedSpeed
     const maxTokens = this.options.maxTokens
     const seedConfig = deepFreeze(structuredClone(
       this.requestHeaderLogged
@@ -570,6 +574,7 @@ export class ReactLoopAgent implements Agent {
         : {
           ...route,
           ...reasoningEffort === undefined ? {} : { reasoningEffort },
+          ...speed === undefined ? {} : { speed },
           ...maxTokens === undefined ? {} : { maxTokens },
         },
     ))

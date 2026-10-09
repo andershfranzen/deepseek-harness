@@ -576,6 +576,8 @@ interface LlmResolvedModelInfo extends LlmModelInfo {
   defaultMaxTokens?: number
   /** Adapter-owned selectable reasoning levels when exposed. */
   reasoning?: LlmModelReasoningInfo
+  /** Adapter-owned selectable speed tiers when exposed; absent offers only the standard tier. */
+  speed?: LlmModelSpeedInfo
   /** Declared mid-conversation system prompt handling; absent means only a leading system message is read. */
   systemPromptUpdate?: SystemPromptUpdate
   /** Declared mid-conversation tool declaration handling; absent means every request declares the complete tool list. */
@@ -608,6 +610,8 @@ interface GenerateOptions {
   model: string
   /** Adapter-owned reasoning effort selected for this exact model. */
   reasoningEffort?: ReasoningEffortId
+  /** Adapter-owned speed tier selected for this exact model; absent requests the standard tier. */
+  speed?: SpeedTierId
   /**
    * Ordered conversation messages, exactly as the provider sees them. A
    * loop-built request passes the derived history (dsh-agent-loop), whose
@@ -752,7 +756,7 @@ FIXME(call-config-shape)：重新审视其余哪些字段出于缓存目的确�
 
 ```ts type-equiv
 /**
- * Provider, model, reasoning effort, and sampling scalars of one conversation's
+ * Provider, model, reasoning effort, speed tier, and sampling scalars of one conversation's
  * requests. Every field maps 1:1 onto the same-named `GenerateOptions` field;
  * the loop builds requests from the logged header rather than accepting these
  * per call.
@@ -761,6 +765,7 @@ interface LlmCallConfig {
   provider: string
   model: string
   reasoningEffort?: ReasoningEffortId
+  speed?: SpeedTierId
   temperature?: number
   maxTokens?: number
   stop?: string[]
@@ -1046,8 +1051,8 @@ async resolveModelInfo( provider: string, model: string, signal?: AbortSignal, )
 
 /**
  * Validate a conversation call config against its exact model capability and
- * materialize adapter-configured defaults. Unsupported explicit efforts
- * reject before provider I/O; no clamping or aliasing is performed. This
+ * materialize adapter-configured defaults. Unsupported explicit efforts and
+ * speed tiers reject before provider I/O; no clamping or aliasing is performed. This
  * standalone query does not bind a later dispatch; use {@link prepareCall}
  * when logging and streaming must share one adapter registration.
  * @param config - provider/model route and optional request controls.

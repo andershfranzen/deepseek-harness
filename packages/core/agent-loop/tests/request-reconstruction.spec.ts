@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import LlmRuntime, { createUserMessage, LlmError, ReasoningEffortId  } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, LlmError, ReasoningEffortId, SpeedTierId } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmModelReasoningInfo, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, foldRequestHeader } from '@deepseek-ai/dsh-session'
@@ -263,6 +263,47 @@ describe('request stability across the loop', () => {
       expect(resumedHeaders.at(-1)?.data.header.config.reasoningEffort).toBe(effort)
       expect(resumedHeaders.at(-1)?.data.reason).toBe('resume')
     }
+  })
+
+  it('logs a selected speed tier, sends it, and restores it only for the same route', async () => {
+    const speed = { tiers: [{ id: SpeedTierId('fast'), name: 'Fast' }] }
+    const adapter = new MockAdapter([textResponse('one')])
+    adapter.speed = speed
+    const ctx = await harness(adapter)
+    const agent = await ctx.agentLoop.create(SessionId('speed'), {
+      provider: 'mock', model: 'mock', speed: SpeedTierId('fast'),
+    })
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    expect(adapter.requests[0]?.speed).toBe('fast')
+    const header = agent.session.snapshotEvents().find(event => event.type === 'request/header')
+    expect(header?.type === 'request/header' && header.data.header.config.speed).toBe('fast')
+    expect(header?.type === 'request/header' && header.data.header.adapterDefaults).toBeUndefined()
+
+    for (const [model, restored] of [['mock', 'fast'], ['replacement', undefined]] as const) {
+      const resumedAdapter = new MockAdapter([textResponse('resumed')])
+      resumedAdapter.speed = speed
+      const resumedCtx = await harness(resumedAdapter)
+      const resumedHandle = await resumedCtx.agents.create({
+        sessionId: SessionId(`speed-${model}`),
+        seed: structuredClone(agent.session.snapshotEvents()),
+        agentOptions: { provider: 'mock', model },
+      })
+      send(resumedHandle.agent, 'resumed')
+      await waitForIdle(resumedCtx, resumedHandle.agent)
+      expect(resumedAdapter.requests[0]?.speed).toBe(restored)
+    }
+  })
+
+  it('refuses a speed tier the model does not advertise before dispatch', async () => {
+    const adapter = new MockAdapter([textResponse('never')])
+    const ctx = await harness(adapter)
+    const agent = await ctx.agentLoop.create(SessionId('speed-unadvertised'), {
+      provider: 'mock', model: 'mock', speed: SpeedTierId('fast'),
+    })
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    expect(adapter.requests).toEqual([])
   })
 
   it('logs an adapter-owned maxTokens default before dispatch', async () => {

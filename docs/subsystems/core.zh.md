@@ -205,6 +205,8 @@ interface AgentOptions {
   model?: string
   /** Adapter-owned reasoning effort for the selected provider/model route. */
   reasoningEffort?: ReasoningEffortId
+  /** Adapter-owned speed tier for the selected provider/model route; absent requests the standard tier. */
+  speed?: SpeedTierId
   /** Maximum output tokens for each conversation-model request. */
   maxTokens?: number
 }
@@ -436,7 +438,7 @@ Owns the default model selection independently of any Host or transport. Each op
 ```ts cordis-catalog
 /**
  * Read the current default model selection.
- * @returns a detached provider, model, and optional reasoning selection.
+ * @returns a detached provider, model, and optional reasoning and speed selection.
  */
 currentSelection(): ModelSelection
 

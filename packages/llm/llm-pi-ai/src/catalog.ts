@@ -29,6 +29,7 @@ import type {
   Provider,
   ThinkingLevelMap,
 } from '@earendil-works/pi-ai'
+import { isJsonValue } from '@deepseek-ai/dsh-util-values'
 
 /**
  * Pricing for a model the installed catalog does not describe. The harness
@@ -618,8 +619,39 @@ export interface PiAiModelProfile {
    * declares the offered levels and their wire spellings.
    */
   reasoningEfforts?: false | PiAiReasoningEfforts
+  /**
+   * Selectable speed tiers. Absent inherits the route's
+   * {@link RouteCatalogRequest.speedTiers}; `false` offers only the standard
+   * tier; a non-empty dict replaces the route's tiers for this model.
+   */
+  speedTiers?: false | PiAiSpeedTiers
   /** pi-ai wire-compatibility switches for this model, winning over the route's per field; one its protocol does not declare is refused. */
   compat?: PiAiCompatProfile
+}
+
+/**
+ * One selectable speed tier. A request naming the tier merges {@link body}
+ * into the provider payload at the top level, replacing same-named fields, and
+ * adds {@link headers}; a request naming no tier sends neither.
+ */
+export interface PiAiSpeedTier {
+  /** Name shown by model selectors. */
+  name: string
+  /** Optional selector hint, such as the tier's usage cost. */
+  description?: string
+  /** Non-empty top-level JSON payload fields, such as `{ service_tier: priority }`. */
+  body: Record<string, unknown>
+  /** Extra request headers; Harness attribution headers win name collisions. */
+  headers?: Record<string, string>
+}
+
+/** Speed tiers keyed by their non-empty tier id, in display order. */
+export type PiAiSpeedTiers = Record<string, PiAiSpeedTier>
+
+/** One validated speed tier with its id. */
+export interface ResolvedPiAiSpeedTier extends PiAiSpeedTier {
+  /** The dict key the tier was configured under. */
+  id: string
 }
 
 /**
@@ -645,6 +677,8 @@ export interface RouteCatalogRequest {
   modelOverrides?: Readonly<Record<string, PiAiModelOverride>>
   /** Route-level wire-compatibility switches, landing on each model whose protocol declares them; entries override per field. */
   compat?: PiAiCompatProfile
+  /** Speed tiers for every model on the route whose entry declares none; empty offers only the standard tier. */
+  speedTiers?: PiAiSpeedTiers
   /** Context capacity for a model neither the entry nor the catalog sizes. */
   defaultContextWindow: number
   /** Output capability for a model neither the entry nor the catalog sizes. */
@@ -756,6 +790,75 @@ function resolveModelReasoning(
   return { reasoning: true, thinkingLevelMap: map }
 }
 
+/**
+ * Validate one speed-tier dict and detach it in configuration order.
+ * @param provider - provider route key, for diagnostics.
+ * @param site - `route` or `model "<id>"`, for diagnostics.
+ * @param tiers - the configured dict.
+ * @returns the tiers with their ids.
+ */
+function resolveSpeedTierList(provider: string, site: string, tiers: PiAiSpeedTiers): ResolvedPiAiSpeedTier[] {
+  return Object.entries(tiers).map(([id, tier]) => {
+    if (id.length === 0) invalid(provider, `${site} has a speedTiers entry with an empty tier id`)
+    // A valueless YAML key arrives as null through schemastery's nullable pass-through.
+    if ((tier as PiAiSpeedTier | null) === null || typeof tier !== 'object') {
+      invalid(provider, `${site} speedTiers.${id} needs a name and a body`)
+    }
+    if (typeof tier.name !== 'string' || tier.name.length === 0) {
+      invalid(provider, `${site} speedTiers.${id} needs a non-empty name`)
+    }
+    if (tier.description !== undefined && typeof tier.description !== 'string') {
+      invalid(provider, `${site} speedTiers.${id} description must be a string`)
+    }
+    const body = tier.body as Record<string, unknown> | null | undefined
+    if (body === null || body === undefined || typeof body !== 'object' || Array.isArray(body)
+      || Object.keys(body).length === 0) {
+      invalid(provider, `${site} speedTiers.${id} needs a non-empty body of payload fields to send`)
+    }
+    for (const [field, value] of Object.entries(body)) {
+      if (!isJsonValue(value)) invalid(provider, `${site} speedTiers.${id} body.${field} must be a JSON value`)
+    }
+    for (const [name, value] of Object.entries(tier.headers ?? {})) {
+      try {
+        new Headers([[name, value]])
+      } catch {
+        invalid(provider, `${site} speedTiers.${id} header "${name}" is not valid for Fetch; use a valid HTTP`
+          + ' field name and a single-line value representable as bytes')
+      }
+    }
+    return {
+      id,
+      name: tier.name,
+      ...tier.description === undefined ? {} : { description: tier.description },
+      body: structuredClone(body),
+      ...tier.headers === undefined || Object.keys(tier.headers).length === 0 ? {} : { headers: { ...tier.headers } },
+    }
+  })
+}
+
+/**
+ * Resolve one model's speed tiers from its entry and the route default.
+ * @param provider - provider route key, for diagnostics.
+ * @param entry - the configured model entry.
+ * @param route - the route's validated tiers.
+ * @returns the model's tiers; empty offers only the standard tier.
+ */
+function resolveModelSpeedTiers(
+  provider: string,
+  entry: PiAiModelProfile,
+  route: readonly ResolvedPiAiSpeedTier[],
+): readonly ResolvedPiAiSpeedTier[] {
+  const tiers = entry.speedTiers
+  if (tiers === undefined) return route
+  if (tiers === false) return []
+  // A YAML `speedTiers:` left valueless arrives as null, like `reasoningEfforts`.
+  if ((tiers as PiAiSpeedTiers | null) === null || Object.keys(tiers).length === 0) {
+    invalid(provider, `model "${entry.id}" has an empty speedTiers; declare the offered tiers, set false to offer`
+      + ' only the standard tier, or omit the field to keep the route\'s tiers')
+  }
+  return resolveSpeedTierList(provider, `model "${entry.id}"`, tiers)
+}
+
 /** The compat block a materialized model carries, whichever protocol it speaks. */
 type ModelCompat = OpenAICompletionsCompat | OpenAIResponsesCompat | AnthropicMessagesCompat | BedrockCompat | MistralConversationsCompat
 
@@ -827,6 +930,8 @@ export interface RouteCatalog {
    * picked, so only an explicit configuration lands here.
    */
   configuredMaxTokens: ReadonlyMap<string, number>
+  /** Non-empty speed-tier lists by model id; a model without an entry offers only the standard tier. */
+  speedTiers: ReadonlyMap<string, readonly ResolvedPiAiSpeedTier[]>
 }
 
 /**
@@ -890,8 +995,10 @@ export function resolveRouteModels(
   // wherever it is written, so it cannot look applied on a route whose models
   // never reach the protocol that would have taken it.
   assertOfferedCompatFields(provider, 'route', request.compat)
+  const routeSpeedTiers = resolveSpeedTierList(provider, 'route', request.speedTiers ?? {})
   const seen = new Set<string>()
   const configuredMaxTokens = new Map<string, number>()
+  const speedTiers = new Map<string, readonly ResolvedPiAiSpeedTier[]>()
   const resolveEntry = (entry: PiAiModelProfile): Model<Api> => {
     assertOfferedCompatFields(provider, `model "${entry.id}"`, entry.compat)
     if (entry.id.length === 0) invalid(provider, 'has a model with an empty id')
@@ -922,6 +1029,8 @@ export function resolveRouteModels(
     // Only a value the profile named is a deployment choice; the catalog's is
     // the model's capability and stays out of request defaults.
     if (entry.maxTokens !== undefined) configuredMaxTokens.set(entry.id, entry.maxTokens)
+    const modelSpeedTiers = resolveModelSpeedTiers(provider, entry, routeSpeedTiers)
+    if (modelSpeedTiers.length > 0) speedTiers.set(entry.id, modelSpeedTiers)
     return {
       // The installed entry lays the floor, and the fields below override it.
       // Enumerating instead would silently drop every `Model` field this
@@ -966,5 +1075,5 @@ export function resolveRouteModels(
     invalid(provider, `sets compat "${field}", but no model on the route speaks a protocol that takes it;`
       + ` it exists on ${takers.join(', ')}`)
   }
-  return { models: serviceableModels, configuredMaxTokens, modelErrors }
+  return { models: serviceableModels, configuredMaxTokens, speedTiers, modelErrors }
 }

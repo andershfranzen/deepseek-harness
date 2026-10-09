@@ -6,7 +6,7 @@
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import type { MessageId, ToolCallId, ProviderRequestId, ReasoningEffortId } from './brand.ts'
+import type { MessageId, ToolCallId, ProviderRequestId, ReasoningEffortId, SpeedTierId } from './brand.ts'
 import type { Message, UserMessage } from './message.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -387,6 +387,25 @@ export interface LlmModelReasoningInfo {
   defaultEffort?: ReasoningEffortId
 }
 
+/** Display metadata for one adapter-owned speed tier. */
+export interface LlmSpeedTierInfo {
+  /** Opaque stable value accepted by {@link GenerateOptions.speed}. */
+  id: SpeedTierId
+  /** Human-readable tier name for selectors and diagnostics. */
+  name: string
+  /** Optional user-facing distinction, such as its usage cost. */
+  description?: string
+}
+
+/**
+ * Selectable non-standard speed tiers for one exact provider/model route. The
+ * standard tier is implicit: a request without a speed sends nothing extra.
+ */
+export interface LlmModelSpeedInfo {
+  /** Non-standard tiers in adapter-preferred display order; never empty. */
+  tiers: readonly LlmSpeedTierInfo[]
+}
+
 /**
  * How a model applies a system prompt that changes mid-conversation.
  * `'in-history'`: the model reads the latest `system` message at any position
@@ -414,6 +433,8 @@ export interface LlmResolvedModelInfo extends LlmModelInfo {
   defaultMaxTokens?: number
   /** Adapter-owned selectable reasoning levels when exposed. */
   reasoning?: LlmModelReasoningInfo
+  /** Adapter-owned selectable speed tiers when exposed; absent offers only the standard tier. */
+  speed?: LlmModelSpeedInfo
   /** Declared mid-conversation system prompt handling; absent means only a leading system message is read. */
   systemPromptUpdate?: SystemPromptUpdate
   /** Declared mid-conversation tool declaration handling; absent means every request declares the complete tool list. */
@@ -514,6 +535,8 @@ export interface GenerateOptions {
   model: string
   /** Adapter-owned reasoning effort selected for this exact model. */
   reasoningEffort?: ReasoningEffortId
+  /** Adapter-owned speed tier selected for this exact model; absent requests the standard tier. */
+  speed?: SpeedTierId
   /**
    * Ordered conversation messages, exactly as the provider sees them. A
    * loop-built request passes the derived history (dsh-agent-loop), whose

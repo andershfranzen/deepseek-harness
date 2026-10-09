@@ -10,7 +10,7 @@ import type { Volatile } from '@deepseek-ai/cordis'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { ModelSelection } from '@deepseek-ai/dsh-agent'
-import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { ReasoningEffortId, SpeedTierId } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-config-editor'
 
 declare module '@deepseek-ai/cordis' {
@@ -28,16 +28,19 @@ export interface Config {
   model: Volatile<string>
   /** Adapter-owned reasoning effort; omission follows the provider default. */
   reasoningEffort: Volatile<string | undefined>
+  /** Adapter-owned speed tier; omission requests the standard tier. */
+  speed: Volatile<string | undefined>
 }
 
 /** Project stored settings onto the Agent-facing selection type. */
-function selection(settings: { provider: string; model: string; reasoningEffort?: string }): ModelSelection {
+function selection(settings: { provider: string; model: string; reasoningEffort?: string; speed?: string }): ModelSelection {
   return {
     provider: settings.provider,
     model: settings.model,
     ...settings.reasoningEffort === undefined
       ? {}
       : { reasoningEffort: ReasoningEffortId(settings.reasoningEffort) },
+    ...settings.speed === undefined ? {} : { speed: SpeedTierId(settings.speed) },
   }
 }
 
@@ -52,6 +55,7 @@ export class AgentDefaultModelConfig extends Service {
     provider: z.string().required().volatile(),
     model: z.string().required().volatile(),
     reasoningEffort: z.string().volatile(),
+    speed: z.string().volatile(),
   })
 
   constructor(private readonly ownerContext: Context, private config: Config) {
@@ -62,13 +66,15 @@ export class AgentDefaultModelConfig extends Service {
 
   /**
    * Read the current default model selection.
-   * @returns a detached provider, model, and optional reasoning selection.
+   * @returns a detached provider, model, and optional reasoning and speed selection.
    */
   currentSelection(): ModelSelection {
     const reasoningEffort = this.config.reasoningEffort.get()
+    const speed = this.config.speed.get()
     return selection({
       provider: this.config.provider.get(), model: this.config.model.get(),
       ...reasoningEffort === undefined ? {} : { reasoningEffort },
+      ...speed === undefined ? {} : { speed },
     })
   }
 
@@ -87,6 +93,7 @@ export class AgentDefaultModelConfig extends Service {
     const config = {
       provider: next.provider, model: next.model,
       ...next.reasoningEffort === undefined ? {} : { reasoningEffort: String(next.reasoningEffort) },
+      ...next.speed === undefined ? {} : { speed: String(next.speed) },
     }
     const saved = this.saves.then(() => editor.edit(entry, () => config))
     this.saves = saved.catch(() => {})

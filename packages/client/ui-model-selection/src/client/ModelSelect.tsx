@@ -1,10 +1,13 @@
 /**
  * ModelSelect: the composer's named model seat (`conversation.input.model`).
  * Two-level selection per figma 496:26454's MenuDropdown: the root menu is
- * the Model / Effort row pair (label + current value + a right chevron),
+ * the Model / Effort / Speed rows (label + current value + a right chevron),
  * each drilling into its own list — the provider-grouped model list over
- * the shared directory, and the effort levels. The trigger (313:14108's
- * ToggleButton) shows both: model name + effort in the caption tone.
+ * the shared directory, the effort levels, and the speed tiers. Effort and
+ * Speed rows appear only when the current model advertises them; Speed lists
+ * Standard first. The trigger (313:14108's ToggleButton) shows the model name,
+ * then effort and any non-standard speed tier in the caption tone. Switching
+ * models keeps the speed tier only when the new model advertises it.
  * Model catalogs above four entries show search, which retains focus while
  * ↑/↓ cycle the highlighted result; Enter and Tab accept it. Smaller model
  * catalogs, root panes, and effort panes move focus between rows. Escape and Shift+Tab leave a drilled pane first and otherwise close
@@ -43,13 +46,21 @@ import css from './ModelSelect.module.css'
 import { orderModelProviders } from './provider-order.ts'
 
 /** Which pane the dropdown shows: the two-row root or one drilled-in list. */
-type Pane = 'root' | 'model' | 'effort'
+type Pane = 'root' | 'model' | 'effort' | 'speed'
 
 /** One dynamic effort row; undefined means preserve the provider default. */
 interface EffortChoice {
   key: string
   effort: string | undefined
   label: string
+}
+
+/** One speed row; undefined selects the standard tier. */
+interface SpeedChoice {
+  key: string
+  speed: string | undefined
+  label: string
+  description?: string
 }
 
 /** Unplaced portal card: hidden but laid out at a fixed origin so offsetWidth/offsetHeight are real (Menu primitive's measure pass). */
@@ -136,6 +147,22 @@ export function ModelSelect(
         label: effort.name,
       })),
     ], [reasoning, t])
+  const speed = currentChoice?.model.speed
+  const effectiveSpeed = state.current?.speed
+  const speedLabel = effectiveSpeed === undefined
+    ? undefined
+    : speed?.tiers.find(tier => tier.id === effectiveSpeed)?.name ?? effectiveSpeed
+  const speedChoices = useMemo<readonly SpeedChoice[]>(() => speed === undefined
+    ? []
+    : [
+      { key: 'standard', speed: undefined, label: t('speed.standard') },
+      ...speed.tiers.map(tier => ({
+        key: `speed:${tier.id}`,
+        speed: tier.id,
+        label: tier.name,
+        ...tier.description === undefined ? {} : { description: tier.description },
+      })),
+    ], [speed, t])
   const { pending } = state
   const busy = pending !== null
 
@@ -165,7 +192,7 @@ export function ModelSelect(
 
   // Pane switches unmount the focused row; restore focus inside the menu so
   // keyboard navigation remains available.
-  const paneFocus = useRef<'drill' | 'model' | 'effort' | null>(null)
+  const paneFocus = useRef<'drill' | Exclude<Pane, 'root'> | null>(null)
   const previousShowSearch = useRef(showSearch)
   useEffect(() => {
     const changedSearchMode = previousShowSearch.current !== showSearch
@@ -187,9 +214,10 @@ export function ModelSelect(
       ;(target ?? triggerRef.current)?.focus()
       return
     }
-    const cell = itemRefs.current[intent === 'effort' ? 1 : 0]
+    const cellIndex = intent === 'model' ? 0 : intent === 'effort' ? 1 : reasoning === undefined ? 1 : 2
+    const cell = itemRefs.current[cellIndex]
     ;(cell !== null && cell !== undefined && !cell.disabled ? cell : triggerRef.current)?.focus()
-  }, [open, pane, showSearch])
+  }, [open, pane, showSearch, reasoning])
 
   useEffect(() => {
     const viewport = groupsRef.current
@@ -394,7 +422,10 @@ export function ModelSelect(
       closeAfterSelection()
       return
     }
-    submit(selection)
+    const target = choices.find(c => c.selection.provider === selection.provider && c.selection.model === selection.model)
+    const keepsSpeed = effectiveSpeed !== undefined
+      && target?.model.speed?.tiers.some(tier => tier.id === effectiveSpeed) === true
+    submit(keepsSpeed ? { ...selection, speed: effectiveSpeed } : selection)
   }
 
   const chooseEffort = (effort: string | undefined): void => {
@@ -407,8 +438,19 @@ export function ModelSelect(
       provider: state.current.provider,
       model: state.current.model,
       ...effort === undefined ? {} : { reasoningEffort: effort },
+      ...effectiveSpeed === undefined ? {} : { speed: effectiveSpeed },
     }
     submit(selection)
+  }
+
+  const chooseSpeed = (next: string | undefined): void => {
+    if (state.current === null) return
+    if (effectiveSpeed === next) {
+      closeAfterSelection()
+      return
+    }
+    const { speed: _previous, ...rest } = state.current
+    submit({ ...rest, ...next === undefined ? {} : { speed: next } })
   }
 
   const waiting = state.current === null && state.status === 'loading'
@@ -416,14 +458,24 @@ export function ModelSelect(
     ? t('trigger.loading')
     : currentChoice?.model.name
       ?? (state.current === null ? t('trigger.fallback') : `${state.current.provider}/${state.current.model}`)
-  const triggerLabel = effortLabel === undefined ? modelLabel : `${modelLabel} · ${effortLabel}`
+  const triggerLabel = [modelLabel, effortLabel, speedLabel].filter(part => part !== undefined).join(' · ')
   const triggerAria = waiting
     ? t('trigger.loading')
     : state.current === null
       ? t('trigger.selectAria')
       : effortLabel === undefined
-        ? t('trigger.aria', { model: modelLabel })
-        : t('trigger.ariaEffort', { model: modelLabel, effort: effortLabel })
+        ? speedLabel === undefined
+          ? t('trigger.aria', { model: modelLabel })
+          : t('trigger.ariaSpeed', { model: modelLabel, speed: speedLabel })
+        : speedLabel === undefined
+          ? t('trigger.ariaEffort', { model: modelLabel, effort: effortLabel })
+          : t('trigger.ariaEffortSpeed', { model: modelLabel, effort: effortLabel, speed: speedLabel })
+  const loadError = state.error !== null && lastActionRef.current === 'load' && (
+    <div className={css.error}>
+      <span>{t('error.action', { message: state.error })}</span>
+      <button type="button" className={css.retry} onClick={reload}>{t('action.reload')}</button>
+    </div>
+  )
   itemRefs.current = []
   let itemIndex = 0
   let modelIndex = 0
@@ -467,6 +519,7 @@ export function ModelSelect(
         <IconDataOutlineRegular className={css.triggerIcon} size={16} />
         <span className={css.triggerLabel}>{modelLabel}</span>
         {effortLabel !== undefined && <span className={css.triggerEffort}>{effortLabel}</span>}
+        {speedLabel !== undefined && <span className={css.triggerEffort}>{speedLabel}</span>}
         {busy
           ? <StateDot state="ongoing" />
           : <IconChevronDownOutlineRegular className={clsx(css.chevron, open && css.chevronOpen)} />}
@@ -496,6 +549,13 @@ export function ModelSelect(
                 <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { drill('effort') }}>
                   <span className={css.cellLabel}>{t('menu.effort')}</span>
                   <span className={css.cellValue}>{effortLabel}</span>
+                  <IconChevronRightOutlineRegular className={css.cellChevron} />
+                </button>
+              )}
+              {speed !== undefined && (
+                <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { drill('speed') }}>
+                  <span className={css.cellLabel}>{t('menu.speed')}</span>
+                  <span className={css.cellValue}>{speedLabel ?? t('speed.standard')}</span>
                   <IconChevronRightOutlineRegular className={css.cellChevron} />
                 </button>
               )}
@@ -607,12 +667,7 @@ export function ModelSelect(
 
           {pane === 'effort' && (
             <>
-              {state.error !== null && lastActionRef.current === 'load' && (
-                <div className={css.error}>
-                  <span>{t('error.action', { message: state.error })}</span>
-                  <button type="button" className={css.retry} onClick={reload}>{t('action.reload')}</button>
-                </div>
-              )}
+              {loadError}
               {effortChoices.length === 0
                 ? <div className={css.empty}>{t('empty.efforts')}</div>
                 : effortChoices.map(level => (
@@ -637,6 +692,35 @@ export function ModelSelect(
                     </span>
                   </button>
                 ))}
+            </>
+          )}
+
+          {pane === 'speed' && (
+            <>
+              {loadError}
+              {speedChoices.map(level => (
+                <button
+                  ref={itemRef()}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={effectiveSpeed === level.speed}
+                  className={clsx(css.option, effectiveSpeed === level.speed && css.selected)}
+                  key={level.key}
+                  disabled={busy}
+                  onClick={() => { chooseSpeed(level.speed) }}
+                >
+                  <span className={css.optionCopy}>
+                    <span className={css.modelName}>{level.label}</span>
+                    {level.description !== undefined && <span className={css.optionDetail}>{level.description}</span>}
+                  </span>
+                  <span className={css.check}>
+                    {pending !== null && pending.provider === state.current?.provider
+                      && pending.model === state.current.model && pending.speed === level.speed
+                      ? <StateDot state="ongoing" />
+                      : effectiveSpeed === level.speed ? <IconCheckOutlineRegular /> : null}
+                  </span>
+                </button>
+              ))}
             </>
           )}
         </MenuSurface>,

@@ -84,8 +84,11 @@ export type {
   PiAiModelProfile,
   PiAiProviderProfile,
   PiAiReasoningEfforts,
+  PiAiSpeedTier,
+  PiAiSpeedTiers,
   PiAiThinkingFormat,
   ResolvedPiAiProviderProfile,
+  ResolvedPiAiSpeedTier,
 } from './config.ts'
 export { recordKeyFor } from './auth.ts'
 export { supportedProtocols } from './provider.ts'

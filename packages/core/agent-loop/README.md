@@ -49,6 +49,7 @@ Agents declared in the config start automatically when the plugin loads. Each en
 | `agents[].id` | required | Stable label; a fresh session mints `${id}-session-<uuid>` unless `sessionId` is set |
 | `agents[].provider` / `agents[].model` | — | Model route; both required before dispatch |
 | `agents[].reasoningEffort` | — | Non-empty initial reasoning effort; `agent/request` may override it |
+| `agents[].speed` | — | Non-empty initial speed tier the model advertises; absent requests the standard tier |
 | `agents[].maxTokens` | — | Positive per-request output-token cap |
 | `agents[].cwd` | — | Workspace directory for a fresh session |
 | `agents[].sessionId` | — | Exact identity: first use creates, a remount resumes materialized history |

@@ -813,6 +813,8 @@ export class LlmRuntime extends TypertRemoteService {
       ...resolved.systemPromptUpdate === undefined ? {} : { systemPromptUpdate: resolved.systemPromptUpdate },
       ...resolved.toolUpdate === undefined ? {} : { toolUpdate: resolved.toolUpdate },
     }
+    const speed = this.normalizeSpeedInfo(provider, model, resolved.speed)
+    if (speed !== undefined) info.speed = speed
     const reasoning = resolved.reasoning
     if (reasoning === undefined) return info
     if (reasoning.efforts.length === 0) {
@@ -858,10 +860,48 @@ export class LlmRuntime extends TypertRemoteService {
     }
   }
 
+  /** Validate and detach adapter-returned speed-tier metadata. */
+  private normalizeSpeedInfo(
+    provider: string,
+    model: string,
+    speed: LlmResolvedModelInfo['speed'],
+  ): LlmResolvedModelInfo['speed'] {
+    if (speed === undefined) return undefined
+    if (speed.tiers.length === 0) {
+      throw new LlmError(
+        `adapter returned invalid speed metadata for provider "${provider}" model "${model}"`,
+        'INVALID_MODEL_SPEED',
+      )
+    }
+    const seen = new Set<string>()
+    const tiers = speed.tiers.map((tier) => {
+      if (
+        typeof tier.id !== 'string'
+        || tier.id.length === 0
+        || typeof tier.name !== 'string'
+        || tier.name.length === 0
+        || (tier.description !== undefined && typeof tier.description !== 'string')
+        || seen.has(tier.id)
+      ) {
+        throw new LlmError(
+          `adapter returned invalid or duplicate speed tier metadata for provider "${provider}" model "${model}"`,
+          'INVALID_MODEL_SPEED',
+        )
+      }
+      seen.add(tier.id)
+      return {
+        id: tier.id,
+        name: tier.name,
+        ...tier.description === undefined ? {} : { description: tier.description },
+      }
+    })
+    return { tiers }
+  }
+
   /**
    * Validate a conversation call config against its exact model capability and
-   * materialize adapter-configured defaults. Unsupported explicit efforts
-   * reject before provider I/O; no clamping or aliasing is performed. This
+   * materialize adapter-configured defaults. Unsupported explicit efforts and
+   * speed tiers reject before provider I/O; no clamping or aliasing is performed. This
    * standalone query does not bind a later dispatch; use {@link prepareCall}
    * when logging and streaming must share one adapter registration.
    * @param config - provider/model route and optional request controls.
@@ -889,6 +929,12 @@ export class LlmRuntime extends TypertRemoteService {
     const defaulted = config.maxTokens === undefined && info.defaultMaxTokens !== undefined
       ? { ...config, maxTokens: info.defaultMaxTokens }
       : config
+    if (defaulted.speed !== undefined && info.speed?.tiers.some(tier => tier.id === defaulted.speed) !== true) {
+      throw new LlmError(
+        `provider "${config.provider}" model "${config.model}" does not support speed tier "${defaulted.speed}"`,
+        'UNSUPPORTED_SPEED_TIER',
+      )
+    }
     const reasoning = info.reasoning
     const requested = defaulted.reasoningEffort
     let resolvedConfig = defaulted

@@ -80,6 +80,7 @@ kind: "package-reference"
 | `baseURL` | 目录端点 | 路由上所有模型的端点 |
 | `models` | 已安装目录 | 整体替换路由目录；每个条目从已安装模型取默认值 |
 | `modelOverrides` | 无 | 重塑个别已安装目录模型，而不替换其余模型 |
+| `speedTiers` | 无 | 标准档位之外提供的速度档位；模型自身的值替换路由的值 |
 | `compat` | 目录检测 | 无法识别端点的协议兼容开关 |
 | `defaultContextWindow` | `262,144` | 未描述模型的容量回退 |
 | `defaultMaxTokens` | `32,768` | 未描述模型的输出上限回退 |
@@ -103,6 +104,33 @@ profile 的 `models` 列表会替换而非扩展路由的已安装目录；每�
 `reasoningEfforts` 声明模型可选择的 thinking 等级：每个键都是选择器提供的等级，其值是分派时在协议中发送的拼写，因此 `max: ultra` 可以为拥有自有词汇的网关重命名等级。省略该字段时保留已安装目录条目的能力；`false` 声明非推理模型。对于 pi-ai 无法识别的端点，`compat` 开关重塑请求——哪个角色携带系统提示词、哪个字段限制输出、thinking 等级如何传递——可逐路由、逐模型配置。条目与已安装目录都没有尺寸的模型，会采用路由的 `defaultContextWindow` 与 `defaultMaxTokens` 回退值。
 
 对于自托管 Chat Completions 端点，`thinkingTokenBudgetField` 选择推理预算参数，`vllmPriority` 在服务端启用优先级调度时设置整数调度优先级。模板参数接受 `$var: thinking.budget`。`openai-responses` 网关可设置 `supportsMaxOutputTokens: false` 来省略 `max_output_tokens`；Azure 与 Codex 传输会忽略这个共享兼容字段。这些控制均需显式启用；目录拥有的 Anthropic effort 和回退能力不是可配置开关。
+
+### 提供速度档位
+
+`speedTiers` 声明模型在标准档位之外提供的速度档位，以档位 id 为键。路由级字典适用于该路由上的所有模型；模型自身的 `speedTiers` 会替换它，`false` 表示只提供标准档位。每个档位包含 `name`、可选的 `description`、非空的 `body`（请求指定该档位时在顶层合并进提供方载荷）以及可选的 `headers`；名称冲突时以 Harness 归属头为准。未指定速度档位的请求两者都不发送；指定模型未提供的档位的请求会在分派前以 `UNSUPPORTED_SPEED_TIER` 失败。`modelOverrides` 条目接受同一字段。
+
+```yaml
+providers:
+  homelab-openai:
+    api: openai-responses
+    baseURL: https://gateway.example/v1
+    speedTiers:
+      fast:
+        name: Fast
+        description: Priority processing, higher usage
+        body: { service_tier: priority }
+    models:
+      - id: gpt-6-astra
+        speedTiers:
+          fast:
+            name: Fast
+            body: { service_tier: priority }
+          ultrafast:
+            name: Ultrafast
+            body: { service_tier: ultrafast }
+      - id: gpt-6-mini
+        speedTiers: false
+```
 
 ### 运行时更改配置
 

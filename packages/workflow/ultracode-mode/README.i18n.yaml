@@ -1,0 +1,91 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/workflow/ultracode-mode/README.md
+/:
+  en: 6db2bd9f805933c0
+  zh: 827c01a28cce16d6
+/deepseek-ai-dsh-ultracode-mode:
+  en: 13dacc0d319b2273
+  zh: e667776b237f2912
+/deepseek-ai-dsh-ultracode-mode/summary:
+  en: 442c84641350592f
+  zh: 766307d93192be73
+/deepseek-ai-dsh-ultracode-mode/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-ultracode-mode/use-this-package:
+  en: 8f667baf2e73411a
+  zh: eaa8bd6b6e43b327
+/deepseek-ai-dsh-ultracode-mode/use-this-package/when-to-choose-it:
+  en: 5b8f35eaed36b0ab
+  zh: 196ccbe4ee2ab6cd
+/deepseek-ai-dsh-ultracode-mode/use-this-package/minimal-configuration:
+  en: 74877db5326caa88
+  zh: 24fa047178a6ea7d
+/deepseek-ai-dsh-ultracode-mode/use-this-package/switching-ultracode:
+  en: f0493ba482e72624
+  zh: 4f9d6465d546bf1b
+/deepseek-ai-dsh-ultracode-mode/use-this-package/observing-ultracode-state:
+  en: d6bd03c92ec02187
+  zh: ec6c8a7966d23330
+/deepseek-ai-dsh-ultracode-mode/understand-the-implementation:
+  en: 42b15ac6321706aa
+  zh: 4ed0861911abaf5d
+/deepseek-ai-dsh-ultracode-mode/understand-the-implementation/design-philosophy:
+  en: c9dee6eaf909e4fb
+  zh: 8aed4fc4f7c9e0b2
+/deepseek-ai-dsh-ultracode-mode/understand-the-implementation/durable-state-and-step-boundary-appends:
+  en: 0563d6d3b436aee6
+  zh: a31f6808d3e481d3
+/deepseek-ai-dsh-ultracode-mode/understand-the-implementation/narration:
+  en: 592cf363de640c59
+  zh: f14e7bea39acb7d7
+/deepseek-ai-dsh-ultracode-mode/understand-the-implementation/session-projection-unit:
+  en: 2c1d416f7a9ff3ba
+  zh: e126eb67783e1aa8
+/deepseek-ai-dsh-ultracode-mode/understand-the-implementation/prompt-order:
+  en: d0b5022ac26c9684
+  zh: 759bf07dc59ac532
+/deepseek-ai-dsh-ultracode-mode/understand-the-implementation/source-map:
+  en: c1364d899b0d92ec
+  zh: 9c9190c316b28237
+/deepseek-ai-dsh-ultracode-mode/further-exploration:
+  en: 88d2f31d8c5d7ee2
+  zh: c6ce96ad405ddfb0
+/deepseek-ai-dsh-ultracode-mode/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-ultracode-mode/model-experience/ultracode-policy-system-prompt:
+  en: 3e104b746134de4d
+  zh: 91eda15d5055efbe
+/deepseek-ai-dsh-ultracode-mode/model-experience/ultracode-policy-system-prompt/what-the-model-sees:
+  en: 180125423f9ac4b3
+  zh: b8e31a60ca0f4782
+/deepseek-ai-dsh-ultracode-mode/model-experience/ultracode-policy-system-prompt/what-the-model-sees/configuration-example:
+  en: 85ceebb0d1aae24f
+  zh: 1954f2ad3d538621
+/deepseek-ai-dsh-ultracode-mode/model-experience/ultracode-policy-system-prompt/token-effect:
+  en: 63e5b589295cbe0a
+  zh: e9f6f6cdaa7ad522
+/deepseek-ai-dsh-ultracode-mode/model-experience/ultracode-policy-system-prompt/kv-cache-effect:
+  en: ba4c09056109608d
+  zh: 0f065d500bb79dd9
+/deepseek-ai-dsh-ultracode-mode/model-experience/human-command:
+  en: 4d1ec2182c2ac7ec
+  zh: 8344fd26c9d47279
+/deepseek-ai-dsh-ultracode-mode/model-experience/human-command/what-the-model-sees:
+  en: 6af13a5b44a93a3d
+  zh: ab4c7171c0d99c16
+/deepseek-ai-dsh-ultracode-mode/model-experience/human-command/token-effect:
+  en: a88bd2526aca0c75
+  zh: 050ef331eb91a74a
+/deepseek-ai-dsh-ultracode-mode/model-experience/human-command/kv-cache-effect:
+  en: fe2a569311a5c46a
+  zh: 0057555a569f6c6b
+/deepseek-ai-dsh-ultracode-mode/known-limitations-and-deferred-work:
+  en: 15c6b1be23885e04
+  zh: 4e6d88d87efbcb2a
+/deepseek-ai-dsh-ultracode-mode/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea

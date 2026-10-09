@@ -90,10 +90,15 @@ function selectionOf(state: ModelDirectoryState, id: string): ModelSelection | u
       const reasoningEffort = sameRoute
         ? state.current?.reasoningEffort ?? model.reasoning?.defaultEffort
         : model.reasoning?.defaultEffort
+      // A speed tier carries over only to a model that advertises the same tier.
+      const speed = model.speed?.tiers.some(tier => tier.id === state.current?.speed) === true
+        ? state.current?.speed
+        : undefined
       return {
         provider: group.id,
         model: model.id,
         ...reasoningEffort === undefined ? {} : { reasoningEffort },
+        ...speed === undefined ? {} : { speed },
       }
     }
   }

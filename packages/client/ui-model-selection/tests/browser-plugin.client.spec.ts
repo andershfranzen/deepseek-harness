@@ -90,7 +90,7 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
         },
       })
     },
-    selectModel: (payload: { sessionId: SessionId; provider: string; model: string; reasoningEffort?: string }) => {
+    selectModel: (payload: { sessionId: SessionId; provider: string; model: string; reasoningEffort?: string; speed?: string }) => {
       calls.select += 1
       if (selectionFailure !== undefined) return Promise.resolve({ ok: false as const, error: selectionFailure })
       selected = {
@@ -99,6 +99,7 @@ async function bench(locale: 'zh' | 'en' = 'zh') {
         ...payload.reasoningEffort === undefined
           ? {}
           : { reasoningEffort: payload.reasoningEffort },
+        ...payload.speed === undefined ? {} : { speed: payload.speed },
       }
       projections.get(payload.sessionId)?.set({ lastUsed: null, next: selected })
       return Promise.resolve({ ok: true as const, value: { selected } })
@@ -296,6 +297,22 @@ describe('ui-model-selection dual entry', () => {
       model: 'deepseek-v4-pro',
       reasoningEffort: 'high',
     })
+  })
+
+  it('a popup switch carries the speed tier only to a model that advertises it', async () => {
+    const b = await bench()
+    const speed = { tiers: [{ id: 'fast', name: 'Fast' }] }
+    b.setGroups([{ ...GROUPS[0]!, models: GROUPS[0]!.models.map(model => ({ ...model, speed })) }, GROUPS[1]!])
+    b.remote.emit('llm/adapters-updated', [])
+    b.mint('s1')
+    const seatFace = b.seat().inject!(sid('s1'))
+    await seatFace.select({ provider: 'deepseek-official', model: 'deepseek-v4-flash', speed: 'fast' })
+    const options = await b.popup().options(projection('s1'), new AbortController().signal)
+    await b.popup().onSelect(options.find((o: SelectOption) => o.label === 'DeepSeek-V4-Pro')!, projection('s1'))
+    expect(b.hostCurrent()).toEqual({ provider: 'deepseek-official', model: 'deepseek-v4-pro', reasoningEffort: 'high', speed: 'fast' })
+    await b.popup().onSelect(options.find((o: SelectOption) => o.label === 'External Flash')!, projection('s1'))
+    expect(b.hostCurrent()).toEqual({ provider: 'external', model: 'deepseek-v4-flash' })
+    await b.ctx.fiber.dispose()
   })
 
   it.each(['en', 'zh'] as const)('localizes account provider headings in the %s model popup', async (locale) => {

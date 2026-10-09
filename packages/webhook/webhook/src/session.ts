@@ -95,9 +95,10 @@ function installInitialModelSelection(agentCtx: Context, selection: ModelSelecti
     if (agent.session.requestHeader() !== undefined
       || resolved.provider !== selection.provider
       || resolved.model !== selection.model) return resolved
-    const { reasoningEffort: _inheritedEffort, ...withoutInheritedEffort } = resolved
+    // Webhook selections name no speed tier, so the route runs at the standard tier.
+    const { reasoningEffort: _inheritedEffort, speed: _inheritedSpeed, ...withoutInherited } = resolved
     return {
-      ...withoutInheritedEffort,
+      ...withoutInherited,
       ...selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort },
     }
   })

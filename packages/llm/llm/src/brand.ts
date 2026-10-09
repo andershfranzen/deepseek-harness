@@ -74,3 +74,15 @@ export type ReasoningEffortId = Branded<'ReasoningEffortId'>
 export function ReasoningEffortId(id: string): ReasoningEffortId {
   return brandString<ReasoningEffortId>(id)
 }
+
+/** Adapter-owned identifier for one model's selectable speed tier. */
+export type SpeedTierId = Branded<'SpeedTierId'>
+
+/**
+ * Brand an adapter-owned speed-tier identifier.
+ * @param id - the opaque identifier exposed by one model capability.
+ * @returns the same string, branded; no validation is performed.
+ */
+export function SpeedTierId(id: string): SpeedTierId {
+  return brandString<SpeedTierId>(id)
+}

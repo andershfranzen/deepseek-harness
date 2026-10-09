@@ -135,6 +135,43 @@ interface WorkflowRun {
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxultracodemode--ultracodemodecontroller"></a>
+
+### `ctx.ultracodeMode` — `UltracodeModeController`
+
+`ctx.ultracodeMode`: owns logged ultracode state, applies and narrates a selected state at the next accepted in-turn pre-step, contributes the `ultracode:policy` section, and registers `/ultracode` when a command registry is composed. Client carriers expose the projection's `{ active, pending }` view.
+
+```ts cordis-catalog
+/**
+ * Read the logged ultracode state and any selected state awaiting the next
+ * accepted in-turn pre-step.
+ *
+ * @param agent The agent to read.
+ * @returns Current logged state plus a pending selection, when present.
+ */
+get(agent: Agent): { active: boolean; pending?: boolean }
+
+/**
+ * Select whether ultracode should be active. Between turns the method
+ * appends the change immediately because no in-turn pre-step will run until
+ * another prompt starts a turn. During an open turn the selection remains
+ * pending until the next accepted in-turn pre-step. Repeated selection of
+ * the current or already-pending state is a no-op.
+ *
+ * @param agent The agent to switch.
+ * @param active Whether ultracode should be active.
+ * @returns what happened: `committed` (logged now), `queued` (awaiting the
+ * next accepted in-turn pre-step), `cancelled` (an opposite pending selection
+ * was cleared; the logged state already matches), or `noop` (already in that
+ * state).
+ */
+set(agent: Agent, active: boolean): 'committed' | 'queued' | 'cancelled' | 'noop'
+```
+
+Types: [Agent](core.zh.md)
+
+Source: [`packages/workflow/ultracode-mode/src/index.ts`](../../packages/workflow/ultracode-mode/src/index.ts)
+
 <a id="ctxworkflowengine--workflowengine-abstract-seam"></a>
 
 ### `ctx.workflowEngine` — `WorkflowEngine` (abstract seam)

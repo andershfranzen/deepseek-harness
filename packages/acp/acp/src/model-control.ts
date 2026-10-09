@@ -125,6 +125,7 @@ export class AcpModelControl {
           provider: current.provider,
           model: current.model,
           ...providerDefault ? {} : { reasoningEffort: ReasoningEffortId(value) },
+          ...current.speed === undefined ? {} : { speed: current.speed },
         }, signal)
       } else {
         throw new AcpModelConfigError(`unknown session config option: ${configId}`)
@@ -227,6 +228,7 @@ export class AcpModelControl {
       provider: resolved.provider,
       model: resolved.model,
       ...resolved.reasoningEffort === undefined ? {} : { reasoningEffort: resolved.reasoningEffort },
+      ...resolved.speed === undefined ? {} : { speed: resolved.speed },
     }
   }
 }

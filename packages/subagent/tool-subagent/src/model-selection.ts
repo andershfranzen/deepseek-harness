@@ -117,9 +117,14 @@ export function requestedAgentOptions(
   const baselineModel = configured?.model ?? parentOptions.model
   const routeChanged = request.provider !== undefined
     && (request.provider !== baselineProvider || request.model !== baselineModel)
-  const { reasoningEffort: _configuredReasoningEffort, ...configuredWithoutReasoning } = configured ?? {}
+  const {
+    reasoningEffort: _configuredReasoningEffort,
+    speed: _configuredSpeed,
+    ...configuredWithoutRouteOptions
+  } = configured ?? {}
   return {
-    ...routeChanged && request.reasoning_effort === undefined ? configuredWithoutReasoning : configured,
+    // A changed route drops configured route-owned values; a requested effort is reapplied below.
+    ...routeChanged ? configuredWithoutRouteOptions : configured,
     ...request.provider === undefined ? {} : { provider: request.provider, model: request.model },
     ...request.reasoning_effort === undefined
       ? {}
@@ -155,23 +160,25 @@ export function assertAllowedModelSelection(
 /**
  * Whether configured Agent options require route validation before delegation.
  * @param options - Tool-instance child defaults.
- * @returns Whether configured provider, model, or effort values must be resolved.
+ * @returns Whether configured provider, model, effort, or speed values must be resolved.
  */
 export function hasConfiguredLlmSelection(options: AgentOptions | undefined): boolean {
   return options?.provider !== undefined
     || options?.model !== undefined
     || options?.reasoningEffort !== undefined
+    || options?.speed !== undefined
 }
 
 /**
  * Resolve an effective child route through its live adapter before the child is
  * created. The LLM runtime owns provider lookup, exact-model metadata, effort
- * validation, and adapter defaults.
+ * and speed-tier validation, and adapter defaults. A parent speed tier is
+ * inherited under the same rule as its effort: only on an unchanged route.
  * @param llm - Live LLM runtime.
  * @param parentOptions - Current parent values whose compatible fields the child inherits.
  * @param requested - Per-child options after request/config merging.
  * @param signal - Tool-call cancellation signal.
- * @param inheritParentReasoningEffort - Whether an omitted effort may inherit from the parent route.
+ * @param inheritParentReasoningEffort - Whether an omitted effort or speed tier may inherit from the parent route.
  */
 export async function preflightChildLlmRoute(
   llm: LlmRuntime,
@@ -188,9 +195,12 @@ export async function preflightChildLlmRoute(
   const routeChanged = provider !== parentOptions.provider || model !== parentOptions.model
   const reasoningEffort = requested?.reasoningEffort
     ?? (inheritParentReasoningEffort && !routeChanged ? parentOptions.reasoningEffort : undefined)
+  const speed = requested?.speed
+    ?? (inheritParentReasoningEffort && !routeChanged ? parentOptions.speed : undefined)
   await llm.resolveCallConfig({
     provider,
     model,
     ...reasoningEffort === undefined ? {} : { reasoningEffort },
+    ...speed === undefined ? {} : { speed },
   }, signal)
 }

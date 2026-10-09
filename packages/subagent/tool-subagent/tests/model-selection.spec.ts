@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { ReasoningEffortId, SpeedTierId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -287,6 +287,20 @@ describe('dsh-tool-subagent model selection', () => {
     })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('without an effective provider and model')
+  })
+
+  it('preflights an inherited speed only while the route is unchanged', async () => {
+    const ctx = await setup({ provider: 'mock' })
+    ctx.llm.registerAdapter(['alpha'], new MockAdapter([], REASONING))
+    const parentOptions = { provider: 'alpha', model: 'parent-model', speed: SpeedTierId('fast') }
+    const signal = new AbortController().signal
+    await expect(preflightChildLlmRoute(ctx.llm, parentOptions, undefined, signal))
+      .rejects.toThrow('does not support speed tier "fast"')
+    await expect(preflightChildLlmRoute(ctx.llm, parentOptions, { provider: 'alpha', model: 'child-model' }, signal))
+      .resolves.toBeUndefined()
+    await expect(preflightChildLlmRoute(ctx.llm, parentOptions, undefined, signal, false)).resolves.toBeUndefined()
+    await expect(preflightChildLlmRoute(ctx.llm, parentOptions, { speed: SpeedTierId('turbo') }, signal, false))
+      .rejects.toThrow('does not support speed tier "turbo"')
   })
 
   it('rejects preflight without an effective provider and model', async () => {

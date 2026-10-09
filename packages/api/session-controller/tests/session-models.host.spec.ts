@@ -10,7 +10,7 @@ import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AttachmentStore from '@deepseek-ai/dsh-attachment'
-import LlmRuntime, { LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { LlmAdapter, ReasoningEffortId, SpeedTierId } from '@deepseek-ai/dsh-llm'
 import type {
   GenerateOptions, LlmCallConfig, LlmCallConfigAdapterDefaults, LlmModelInfo,
   LlmModelReasoningInfo, LlmProviderInfo, LlmResolvedModelInfo, StreamChunk,
@@ -561,6 +561,55 @@ describe('Web session model selection', () => {
     })
     expect(currentSelection(ctx, sessionId))
       .toEqual({ provider: 'deepseek-official', model: 'deepseek-reasoner', reasoningEffort: 'max' })
+    await ctx.fiber.dispose()
+  })
+
+  it('advertises speed tiers and round-trips a speed through selection, request, and projection', async () => {
+    const { ctx, agent, sessionId } = await harness()
+    ctx.llm.registerAdapter(['tiered'], new class extends CatalogAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({
+          provider, id: model, name: model,
+          speed: { tiers: [{ id: SpeedTierId('fast'), name: 'Fast', description: 'Priority processing' }] },
+        })
+      }
+    }('Tiered', [{ provider: 'tiered', id: 'gpt', name: 'GPT' }]))
+    const remote = createSessionTestRemote(ctx, { defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }), cwd: '/tmp' })
+    const signal = new AbortController().signal
+
+    const catalog = await buildModelCatalog(ctx)
+    expect(catalog.groups.find(group => group.id === 'tiered')?.models).toEqual([{
+      id: 'gpt', name: 'GPT', speed: { tiers: [{ id: 'fast', name: 'Fast', description: 'Priority processing' }] },
+    }])
+
+    expect(await remote.selectModel(request({ sessionId, provider: 'tiered', model: 'gpt', speed: 'turbo' })))
+      .toMatchObject({ ok: false, error: { code: 'session/model-unavailable', message: /speed tier "turbo"/ } })
+    const selected = expectValue(await remote.selectModel(request({ sessionId, provider: 'tiered', model: 'gpt', speed: 'fast' })))
+    expect(selected.selected).toEqual({ provider: 'tiered', model: 'gpt', speed: 'fast' })
+    expect(currentSelection(ctx, sessionId)).toEqual({ provider: 'tiered', model: 'gpt', speed: 'fast' })
+
+    await ctx.systemPrompt.assemble()
+    const config = await agentEvents(ctx, agent).waterfall(
+      'agent/request', { turn: 1, step: 0, signal }, () => Promise.resolve({ provider: 'seed', model: 'seed' }),
+    )
+    expect(config).toEqual({ provider: 'tiered', model: 'gpt', speed: 'fast' })
+    agent.session.append('request/header', { header: { config }, reason: 'initial' })
+    const session = ctx.sessions.get(sessionId)
+    if (session === undefined) throw new Error('expected a live test Session')
+    expect(ctx.sessionProjections.snapshot(session).values.modelSelection).toEqual({
+      lastUsed: { provider: 'tiered', model: 'gpt', speed: 'fast' },
+      next: { provider: 'tiered', model: 'gpt', speed: 'fast' },
+    })
+
+    // With the selection consumed, the next request follows the logged speed.
+    await ctx.systemPrompt.assemble()
+    await expect(agentEvents(ctx, agent).waterfall(
+      'agent/request', { turn: 1, step: 1, signal }, () => Promise.resolve({ provider: 'seed', model: 'seed' }),
+    )).resolves.toEqual({ provider: 'tiered', model: 'gpt', speed: 'fast' })
+
+    // Selecting the standard tier is a change of its own, not a match for the logged speed.
+    expectValue(await remote.selectModel(request({ sessionId, provider: 'tiered', model: 'gpt' })))
+    expect(currentSelection(ctx, sessionId)).toEqual({ provider: 'tiered', model: 'gpt' })
     await ctx.fiber.dispose()
   })
 

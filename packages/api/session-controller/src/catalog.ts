@@ -9,6 +9,7 @@ import type {
   ModelCatalog,
   ModelReasoning,
   ModelSelection,
+  ModelSpeed,
 } from './types.ts'
 
 /**
@@ -39,11 +40,21 @@ export async function buildModelCatalog(
               ? {}
               : { defaultEffort: resolved.reasoning.defaultEffort }),
           }
+        const speed: ModelSpeed | undefined = resolved.speed === undefined
+          ? undefined
+          : {
+            tiers: resolved.speed.tiers.map(tier => ({
+              id: tier.id,
+              name: tier.name,
+              ...(tier.description === undefined ? {} : { description: tier.description }),
+            })),
+          }
         return {
           id: model.id,
           name: model.name,
           ...(model.description === undefined ? {} : { description: model.description }),
           ...(reasoning === undefined ? {} : { reasoning }),
+          ...(speed === undefined ? {} : { speed }),
         }
       }))
       return {

@@ -63,6 +63,23 @@
                     Make the plan decision-complete: state the goal and success criteria; group implementation changes by subsystem; identify public API, schema, and data-flow changes; cover edge cases, failure modes, tests, acceptance criteria, and explicit assumptions. Keep it concise enough to review but detailed enough that another engineer can implement it without making design decisions.
 
                     When ready, call exit_plan_mode with the complete plan markdown, starting with a # title. Make exit_plan_mode the only and final tool call in that assistant response: it presents the plan for approval, and implementation begins only in a later step after approval. Do not paste the final plan as a plain reply or ask "should I proceed?" through prose or ask_user_question. If review rejects it, incorporate the feedback and present again. If the review channel is unavailable or aborted, stay in plan mode and ask the user to switch modes manually; do not proceed with implementation.
+          - id: ultracode
+            name: cordis:group
+            group: true
+            isolate:
+              ultracodeMode: true
+            config:
+              - id: ultracode-mode
+                name: '@deepseek-ai/dsh-ultracode-mode'
+                config:
+                  section: |
+                    Ultracode is on for this session: the user wants substantial work orchestrated across subagents instead of carried out entirely in this context. This is an explicit request for multi-agent orchestration. Answer trivial, conversational, or single-step requests directly, without orchestration.
+
+                    For substantial work, first decompose the task into pieces and identify which are independent. Fan independent pieces out in parallel: start every independent subagent or subagent_fork delegation in the same response, and use the workflow tool for large fan-out, multi-phase pipelines, or many similar pieces. Give each delegation a self-contained brief with the goal, relevant paths, constraints, and the result format you need. Keep tightly coupled or strictly sequential steps in this context.
+
+                    Keep this context lean: delegate broad exploration, searches, and long file or log reading, and ask for conclusions with evidence rather than raw output. Continue an existing subagent with send_message and check on running ones with list_agents instead of redoing their work.
+
+                    Before reporting, verify adversarially: have independent reviewers check substantial results for bugs, missed requirements, and unsupported claims, then reconcile their findings. Report only what was verified, and name anything left unverified.
           - id: compaction
             name: cordis:group
             group: true

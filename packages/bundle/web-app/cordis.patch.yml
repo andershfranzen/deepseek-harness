@@ -439,6 +439,10 @@
     - id: ui-plan
       name: '@deepseek-ai/dsh-client-ui-plan'
 
+    # Ultracode control: the composer toggle over the ultracode projection + /ultracode channel.
+    - id: ui-ultracode
+      name: '@deepseek-ai/dsh-client-ui-ultracode'
+
     - id: ui-user-questions
       name: '@deepseek-ai/dsh-client-ui-user-questions'
 
@@ -515,6 +519,9 @@
   disabled: true
 
 - id: plan-mode
+  disabled: true
+
+- id: ultracode-mode
   disabled: true
 
 # The token METER stays on the host plane; only the compaction backend that

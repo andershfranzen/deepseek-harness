@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-10-09-speed-tiers-and-ultracode.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-10-09-speed-tiers-and-ultracode.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-10-09-speed-tiers-and-ultracode:
+  en: 370ac8d00c5b717e
+  zh: 57e9816a98ac4a8f
+/2026-10-09-speed-tiers-and-ultracode/summary:
+  en: 42e151717165b95d
+  zh: a6dbf274881d6328
+/2026-10-09-speed-tiers-and-ultracode/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-10-09-speed-tiers-and-ultracode/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-10-09-speed-tiers-and-ultracode/compatibility:
+  en: 9122d3dc25010e73
+  zh: 99f6b09f9e8e6632
+/2026-10-09-speed-tiers-and-ultracode/verification:
+  en: 74798a4c06d4ffc7
+  zh: 237ee9b1e6559ba1
+/2026-10-09-speed-tiers-and-ultracode/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

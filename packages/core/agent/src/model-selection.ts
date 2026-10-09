@@ -9,6 +9,7 @@ import {
   createUserMessage,
   type LlmCallConfig,
   type ReasoningEffortId,
+  type SpeedTierId,
 } from '@deepseek-ai/dsh-llm'
 import type { PreStepDecision } from './runtime-types.ts'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
@@ -18,7 +19,7 @@ declare module '@deepseek-ai/dsh-llm' {
   }
 }
 
-/** Complete provider, model, and optional reasoning effort selected for one live Agent. */
+/** Complete provider, model, and optional reasoning effort and speed tier selected for one live Agent. */
 export interface ModelSelection {
   /** Registered provider route. */
   provider: string
@@ -26,6 +27,8 @@ export interface ModelSelection {
   model: string
   /** Adapter-owned reasoning effort, or provider/default behavior when absent. */
   reasoningEffort?: ReasoningEffortId
+  /** Adapter-owned speed tier, or the standard tier when absent. */
+  speed?: SpeedTierId
 }
 
 /** Mutable model selection plus the value captured for the current step. */
@@ -63,14 +66,15 @@ function modelSwitchNotice(previous: ModelSelection, selected: ModelSelection) {
 /**
  * Couple one mutable selection to Agent-scoped prompt assembly and request routing.
  * Prompt assembly snapshots the selected model before delegating, then applies
- * its provider/model pair and effort to request config so a
+ * its provider/model pair, effort, and speed tier to request config so a
  * concurrent switch takes effect on a later step instead of splitting the two
  * surfaces. An absent selected effort clears any inherited effort, restoring
- * the selected model's provider/default behavior.
+ * the selected model's provider/default behavior; an absent selected speed
+ * likewise clears an inherited speed, restoring the standard tier.
  *
  * A provider/model change appends a durable user-role notice to the next
  * admitted request. It compares the assembled selection with the latest
- * request header; effort-only changes and empty no-request decisions add no
+ * request header; effort- or speed-only changes and empty no-request decisions add no
  * notice. Failure before header persistence repeats the notice on the next
  * request.
  *
@@ -99,14 +103,15 @@ export function installModelSelection(agentCtx: Context, selection: ModelSelecti
       const resolved = await next()
       const selected = selection.assembled
       if (selected === undefined) return resolved
-      const { reasoningEffort: _inheritedEffort, ...withoutInheritedEffort } = resolved
+      const { reasoningEffort: _inheritedEffort, speed: _inheritedSpeed, ...withoutInherited } = resolved
       return {
-        ...withoutInheritedEffort,
+        ...withoutInherited,
         provider: selected.provider,
         model: selected.model,
         ...selected.reasoningEffort === undefined
           ? {}
           : { reasoningEffort: selected.reasoningEffort },
+        ...selected.speed === undefined ? {} : { speed: selected.speed },
       }
     },
   )

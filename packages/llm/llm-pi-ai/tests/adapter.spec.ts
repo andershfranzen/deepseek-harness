@@ -9,7 +9,7 @@ import type {
   SaveImageAttachment,
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import LlmRuntime, { createToolResultMessage, createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createToolResultMessage, createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, SpeedTierId, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -436,6 +436,82 @@ describe('PiAiAdapter provider routing', () => {
 
     expect(server.paths).toEqual(['/chat/completions'])
     expect(server.closedResponses).toBe(1)
+  })
+})
+
+describe('speed tiers', () => {
+  const routeTiers = {
+    fast: { name: 'Fast', description: 'Priority processing', body: { service_tier: 'priority' }, headers: { 'x-tier': 'fast' } },
+  }
+
+  it('advertises route tiers, a model entry replacing them, and false clearing them', async () => {
+    const adapter = adapterOf({
+      gateway: {
+        api: 'openai-responses',
+        baseURL: 'http://127.0.0.1:1/v1',
+        speedTiers: routeTiers,
+        models: [
+          { id: 'inherits' },
+          { id: 'replaces', speedTiers: { ultrafast: { name: 'Ultrafast', body: { service_tier: 'ultrafast' } } } },
+          { id: 'standard-only', speedTiers: false },
+        ],
+      },
+    })
+    expect((await adapter.resolveModel('gateway', 'inherits')).speed).toEqual({
+      tiers: [{ id: 'fast', name: 'Fast', description: 'Priority processing' }],
+    })
+    expect((await adapter.resolveModel('gateway', 'replaces')).speed).toEqual({
+      tiers: [{ id: 'ultrafast', name: 'Ultrafast' }],
+    })
+    expect((await adapter.resolveModel('gateway', 'standard-only')).speed).toBeUndefined()
+  })
+
+  it('applies a modelOverrides tier list to an installed catalog model', async () => {
+    const ctx = await harness('http://127.0.0.1:1', {
+      modelOverrides: { 'deepseek-v4-pro': { speedTiers: routeTiers } },
+    })
+    expect((await ctx.llm.resolveModelInfo('deepseek', 'deepseek-v4-pro')).speed?.tiers.map(tier => tier.id)).toEqual(['fast'])
+    expect((await ctx.llm.resolveModelInfo('deepseek', 'deepseek-flash')).speed).toBeUndefined()
+  })
+
+  it('merges the selected tier body and headers into the request and sends neither without a selection', async () => {
+    const server = await mockServer([{ events: textEvents }, { events: textEvents }])
+    const ctx = await harness(server.url, { speedTiers: routeTiers, headers: { 'X-Tier': 'profile' } })
+
+    const fast = await assemble(ctx, { model: 'deepseek-flash', speed: SpeedTierId('fast'), messages: [] })
+    expect(fast.finish).toEqual({ kind: 'stop' })
+    expect(server.requests[0]).toMatchObject({ model: 'deepseek-flash', service_tier: 'priority' })
+    expect(server.headers[0]?.['x-tier']).toBe('fast')
+
+    await assemble(ctx, { model: 'deepseek-flash', messages: [] })
+    expect(server.requests[1]).not.toHaveProperty('service_tier')
+    expect(server.headers[1]?.['x-tier']).toBe('profile')
+  })
+
+  it('merges a tier body into an Anthropic Messages payload', async () => {
+    const server = await mockServer([{ status: 500, body: '{}' }])
+    const adapter = adapterOf({
+      claude: {
+        api: 'anthropic-messages',
+        baseURL: server.url,
+        models: [{ id: 'claude-x' }],
+        speedTiers: { fast: { name: 'Fast', body: { speed: 'fast' } } },
+      },
+    })
+    for await (const _chunk of adapter.stream({ provider: 'claude', model: 'claude-x', speed: SpeedTierId('fast'), messages: [] })) {
+      // Drain; the scripted 500 ends the stream after the request is recorded.
+    }
+    expect(server.requests[0]).toMatchObject({ model: 'claude-x', speed: 'fast' })
+  })
+
+  it('refuses a tier the model does not offer before network I/O', async () => {
+    const server = await mockServer([])
+    const ctx = await harness(server.url, { speedTiers: routeTiers })
+    const result = await assemble(ctx, { model: 'deepseek-flash', speed: SpeedTierId('ultrafast'), messages: [] })
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { code: 'UNSUPPORTED_SPEED_TIER' } })
+    await expect(ctx.llm.prepareCall({ provider: 'deepseek', model: 'deepseek-flash', speed: SpeedTierId('ultrafast') }))
+      .rejects.toMatchObject({ code: 'UNSUPPORTED_SPEED_TIER' })
+    expect(server.requests).toHaveLength(0)
   })
 })
 

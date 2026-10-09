@@ -19,6 +19,8 @@ export interface AssistantRequestConfig {
   purpose?: string
   thinking?: string
   reasoningEffort?: string
+  /** Adapter-owned speed tier; absent for the standard tier. */
+  speed?: string
   temperature?: number
   maxTokens?: number
   stop?: readonly string[]

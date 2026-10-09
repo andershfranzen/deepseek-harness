@@ -362,6 +362,107 @@ describe('ModelSelect reasoning effort', () => {
   })
 })
 
+describe('ModelSelect speed tiers', () => {
+  const speed = { tiers: [{ id: 'fast', name: 'Fast', description: 'Priority processing' }] }
+  const tiered = (overrides: Partial<ModelDirectoryState> = {}): ModelDirectoryState => state({
+    groups: [{
+      id: 'deepseek-official',
+      name: 'DeepSeek',
+      models: [
+        { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', reasoning, speed },
+        { id: 'tiered-too', name: 'Tiered Too', speed },
+        { id: 'plain', name: 'Plain' },
+      ],
+    }],
+    ...overrides,
+  })
+  const mount = (initial: ModelDirectoryState) => {
+    const directory = createSnapshotStore<ModelDirectoryState>(initial)
+    const select = vi.fn(async (selection: ModelSelection) => {
+      directory.set(tiered({ current: selection }))
+      return { ok: true as const, value: undefined }
+    })
+    render(<ModelSelect locked={false} available directory={directory} load={vi.fn()} select={select} t={t} />)
+    return { directory, select }
+  }
+
+  it('shows the Speed cell only for a model that advertises tiers', () => {
+    mount(state())
+    fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))
+    expect(screen.queryByRole('menuitem', { name: /速度/ })).toBeNull()
+  })
+
+  it('drills into Standard plus the tiers, keeps the effort, and appends a non-standard tier to the trigger', async () => {
+    const { select } = mount(tiered({ current: { provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'max' } }))
+    const trigger = screen.getByRole('button', { name: '选择模型，当前 DeepSeek-V4-Flash，推理等级 Max' })
+    expect(trigger.title).toBe('DeepSeek-V4-Flash · Max')
+    fireEvent.click(trigger)
+    const cell = screen.getByRole('menuitem', { name: /速度/ })
+    expect(cell.textContent).toContain('标准')
+    fireEvent.click(cell)
+    expect(screen.getAllByRole('menuitemradio').map(item => item.textContent))
+      .toEqual(['标准', 'FastPriority processing'])
+    expect(screen.getByRole('menuitemradio', { name: /标准/ }).getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /Fast/ }))
+    await waitFor(() => {
+      expect(select).toHaveBeenCalledWith({
+        provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'max', speed: 'fast',
+      })
+      expect(trigger.getAttribute('aria-label')).toBe('选择模型，当前 DeepSeek-V4-Flash，推理等级 Max，速度 Fast')
+      expect(trigger.title).toBe('DeepSeek-V4-Flash · Max · Fast')
+    })
+  })
+
+  it('returns to Standard by dropping the speed and keeps the speed when changing effort', async () => {
+    const { select } = mount(tiered({ current: { provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'high', speed: 'fast' } }))
+    fireEvent.click(screen.getByRole('button', { name: /速度 Fast/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /Max/ }))
+    await waitFor(() => {
+      expect(select).toHaveBeenLastCalledWith({
+        provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'max', speed: 'fast',
+      })
+    })
+    fireEvent.click(screen.getByRole('button', { name: /速度 Fast/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /速度/ }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /标准/ }))
+    await waitFor(() => {
+      expect(select).toHaveBeenLastCalledWith({
+        provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'max',
+      })
+    })
+  })
+
+  it('carries a speed to a model that advertises it and drops it for one that does not', async () => {
+    const { select } = mount(tiered({ current: { provider: 'deepseek-official', model: 'deepseek-v4-flash', speed: 'fast' } }))
+    const open = () => {
+      fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))
+      fireEvent.click(screen.getByRole('menuitem', { name: /^模型/ }))
+    }
+    open()
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /Tiered Too/ }))
+    await waitFor(() => {
+      expect(select).toHaveBeenLastCalledWith({ provider: 'deepseek-official', model: 'tiered-too', speed: 'fast' })
+    })
+    open()
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /Plain/ }))
+    await waitFor(() => {
+      expect(select).toHaveBeenLastCalledWith({ provider: 'deepseek-official', model: 'plain' })
+    })
+  })
+
+  it('shows a raw speed id when the model has left the catalog and returns focus to the Speed cell', () => {
+    mount(tiered({ current: { provider: 'deepseek-official', model: 'deepseek-v4-flash', speed: 'fast' } }))
+    fireEvent.click(screen.getByRole('button', { name: /选择模型/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /速度/ }))
+    fireEvent.keyDown(screen.getByRole('menuitemradio', { name: /Fast/ }), { key: 'Escape' })
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: /速度/ }))
+    cleanup()
+    mount(state({ current: { provider: 'gone', model: 'gone', speed: 'turbo' } }))
+    expect(screen.getByRole('button', { name: /速度 turbo/ }).title).toBe('gone/gone · turbo')
+  })
+})
+
 describe('ModelSelect keyboard walk', () => {
   function mountOpen() {
     const select = vi.fn().mockResolvedValue({ ok: true, value: undefined })

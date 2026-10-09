@@ -43,6 +43,7 @@ import {
   LlmAdapter,
   LlmError,
   ReasoningEffortId,
+  SpeedTierId,
 } from '@deepseek-ai/dsh-llm'
 import type {
   GenerateOptions,
@@ -53,11 +54,12 @@ import type {
   PreparedAdapterCall,
   ReasoningEffortId as ReasoningEffortIdType,
   ResolvedRetryPolicy,
+  SpeedTierId as SpeedTierIdType,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
-import type { ResolvedPiAiProviderProfile } from './config.ts'
+import type { ResolvedPiAiProviderProfile, ResolvedPiAiSpeedTier } from './config.ts'
 import { toPiContext } from './context.ts'
 import { createModels, getSupportedThinkingLevels } from './models.ts'
 import { toStreamChunks } from './stream.ts'
@@ -201,12 +203,74 @@ function reasoningInfo(
   }
 }
 
+/**
+ * The `speed` field advertising one model's configured tiers, or nothing.
+ * @param tiers - the model's validated tiers, if any.
+ * @returns the `speed` field, or an empty object when only the standard tier exists.
+ */
+function speedInfo(
+  tiers: readonly ResolvedPiAiSpeedTier[] | undefined,
+): Pick<LlmResolvedModelInfo, 'speed'> | Record<string, never> {
+  if (tiers === undefined || tiers.length === 0) return {}
+  return {
+    speed: {
+      tiers: tiers.map(tier => ({
+        id: SpeedTierId(tier.id),
+        name: tier.name,
+        ...tier.description === undefined ? {} : { description: tier.description },
+      })),
+    },
+  }
+}
+
+/** Find the configured tier a request names, refusing one the model does not offer. */
+function resolveSpeedTier(
+  profile: ResolvedPiAiProviderProfile,
+  model: Model<Api>,
+  speed: SpeedTierIdType | undefined,
+): ResolvedPiAiSpeedTier | undefined {
+  if (speed === undefined) return undefined
+  const tier = profile.modelSpeedTiers.get(model.id)?.find(candidate => candidate.id === speed)
+  if (tier === undefined) {
+    throw new LlmError(
+      `pi-ai provider "${model.provider}" model "${model.id}" does not support speed tier "${speed}"`,
+      'UNSUPPORTED_SPEED_TIER',
+    )
+  }
+  return tier
+}
+
+/**
+ * Build the pi-ai payload hook that merges one tier's body into the provider
+ * payload at the top level; tier fields replace same-named payload fields.
+ * @param tier - the selected tier.
+ * @returns the `onPayload` callback.
+ */
+function speedPayloadHook(tier: ResolvedPiAiSpeedTier): (payload: unknown) => Record<string, unknown> {
+  return (payload) => {
+    if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw new LlmError(
+        `pi-ai speed tier "${tier.id}" cannot merge into a provider payload that is not a JSON object`,
+        'UNSUPPORTED_OPTION',
+      )
+    }
+    return { ...payload, ...structuredClone(tier.body) }
+  }
+}
+
 /** Merge deployment headers while removing case-insensitive attribution collisions. */
-function requestHeaders(headers: Readonly<Record<string, string>> | undefined): Record<string, string> {
+function requestHeaders(...layers: (Readonly<Record<string, string>> | undefined)[]): Record<string, string> {
   const attribution = attributionHeaders()
   const reserved = new Set(Object.keys(attribution).map(name => name.toLowerCase()))
+  const merged = new Map<string, [string, string]>()
+  // Later layers replace earlier ones case-insensitively, as HTTP field names compare.
+  for (const layer of layers) {
+    for (const [name, value] of Object.entries(layer ?? {})) {
+      if (!reserved.has(name.toLowerCase())) merged.set(name.toLowerCase(), [name, value])
+    }
+  }
   return {
-    ...Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => !reserved.has(name.toLowerCase()))),
+    ...Object.fromEntries(merged.values()),
     ...attribution,
   }
 }
@@ -312,6 +376,7 @@ export class PiAiAdapter extends LlmAdapter {
       context: { contextWindow: resolvedModel.contextWindow },
       ...configuredMaxTokens === undefined ? {} : { defaultMaxTokens: configuredMaxTokens },
       ...reasoningInfo(resolvedModel, defaultLevel),
+      ...speedInfo(profile.modelSpeedTiers.get(model)),
     }
   }
 
@@ -345,6 +410,7 @@ export class PiAiAdapter extends LlmAdapter {
       model,
       options.reasoningEffort ?? profile.reasoning,
     )
+    const speedTier = resolveSpeedTier(profile, model, options.speed)
     const apiKey = await this.config.resolveApiKey(options.provider, profile)
 
     const consumer = new AbortController()
@@ -383,9 +449,10 @@ export class PiAiAdapter extends LlmAdapter {
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
         signal: watchdog.signal,
-        // Profile headers are deployment-owned; attribution names are
+        // Profile and tier headers are deployment-owned; attribution names are
         // Harness-owned and therefore win collisions.
-        headers: requestHeaders(profile.headers),
+        headers: requestHeaders(profile.headers, speedTier?.headers),
+        ...speedTier === undefined ? {} : { onPayload: speedPayloadHook(speedTier) },
       })
       const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id)[Symbol.asyncIterator]()
       let exhausted = false

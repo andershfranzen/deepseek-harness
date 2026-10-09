@@ -4,13 +4,13 @@ import { expect, it, onTestFinished, vi } from 'vitest'
 import DefaultModel from '../src/index.ts'
 import { liveConfig } from '../../../settings/settings/tests/live-config.ts'
 
-it('reads complete selections from volatile config and clears omitted reasoning effort', async () => {
+it('reads complete selections from volatile config and clears omitted reasoning effort and speed', async () => {
   const ctx = new Context()
   onTestFinished(() => ctx.fiber.dispose())
   const live = await liveConfig(ctx, DefaultModel, { provider: 'p', model: 'm' })
   const consumer = ctx.agentDefaultModel
-  await live.update({ provider: 'q', model: 'n', reasoningEffort: 'high' })
-  expect(consumer.currentSelection()).toEqual({ provider: 'q', model: 'n', reasoningEffort: 'high' })
+  await live.update({ provider: 'q', model: 'n', reasoningEffort: 'high', speed: 'fast' })
+  expect(consumer.currentSelection()).toEqual({ provider: 'q', model: 'n', reasoningEffort: 'high', speed: 'fast' })
   await live.replace({ provider: 'p', model: 'm' })
   expect(consumer.currentSelection()).toEqual({ provider: 'p', model: 'm' })
   await consumer.saveSelection({ provider: 'unsaved', model: 'unsaved' })
@@ -19,10 +19,13 @@ it('reads complete selections from volatile config and clears omitted reasoning 
 
 it('persists complete selections through its owning profile entry', async () => {
   const { configurationFixture } = await import('../../../settings/settings/tests/configuration-fixture.ts')
-  const { ReasoningEffortId } = await import('@deepseek-ai/dsh-llm')
+  const { ReasoningEffortId, SpeedTierId } = await import('@deepseek-ai/dsh-llm')
   const { ctx } = await configurationFixture({ hmr: false })
-  await ctx.agentDefaultModel.saveSelection({ provider: 'test', model: 'next', reasoningEffort: ReasoningEffortId('high') })
-  expect(ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'test', model: 'next', reasoningEffort: 'high' })
+  await ctx.agentDefaultModel.saveSelection({
+    provider: 'test', model: 'next', reasoningEffort: ReasoningEffortId('high'), speed: SpeedTierId('fast'),
+  })
+  expect(ctx.agentDefaultModel.currentSelection())
+    .toEqual({ provider: 'test', model: 'next', reasoningEffort: 'high', speed: 'fast' })
   await ctx.agentDefaultModel.saveSelection({ provider: 'test', model: 'final' })
   expect(ctx.agentDefaultModel.currentSelection()).toEqual({ provider: 'test', model: 'final' })
   const standalone = new Context()

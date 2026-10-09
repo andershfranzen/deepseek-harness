@@ -101,6 +101,8 @@ export interface ModelSelection {
   readonly provider: string
   readonly model: string
   readonly reasoningEffort?: string
+  /** Adapter-owned speed tier; absent selects the standard tier. */
+  readonly speed?: string
 }
 
 /** Host fold state for durable model selection. */
@@ -132,12 +134,26 @@ export interface ModelReasoning {
   readonly defaultEffort?: string
 }
 
+/** One adapter-owned non-standard speed tier for an exact model route. */
+export interface ModelSpeedTier {
+  readonly id: string
+  readonly name: string
+  readonly description?: string
+}
+
+/** Selectable speed tiers for one exact model route; the standard tier is implicit. */
+export interface ModelSpeed {
+  readonly tiers: readonly ModelSpeedTier[]
+}
+
 /** One model displayed inside its provider group. */
 export interface ModelCatalogModel {
   readonly id: string
   readonly name: string
   readonly description?: string
   readonly reasoning?: ModelReasoning
+  /** Non-standard speed tiers; absent offers only the standard tier. */
+  readonly speed?: ModelSpeed
 }
 
 /** One provider and its successfully loaded model catalog. */

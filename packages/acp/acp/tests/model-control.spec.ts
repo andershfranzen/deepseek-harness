@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ReasoningEffortId, type LlmRuntime } from '@deepseek-ai/dsh-llm'
+import { ReasoningEffortId, SpeedTierId, type LlmRuntime } from '@deepseek-ai/dsh-llm'
 import { AcpModelControl } from '../src/model-control.ts'
 
 /** Minimal LLM catalog/runtime double for pure standard-option tests. */
@@ -7,12 +7,13 @@ function llmRuntime(overrides: Partial<LlmRuntime> = {}): LlmRuntime {
   return {
     listProviders: () => [{ id: 'mock', name: 'Mock' }],
     listModels: () => Promise.resolve([{ provider: 'mock', id: 'mock', name: 'Mock' }]),
-    resolveCallConfig: (selection: { provider?: string; model?: string; reasoningEffort?: string }) => Promise.resolve({
+    resolveCallConfig: (selection: { provider?: string; model?: string; reasoningEffort?: string; speed?: string }) => Promise.resolve({
       provider: selection.provider ?? 'mock',
       model: selection.model ?? 'mock',
       ...selection.reasoningEffort === undefined
         ? { reasoningEffort: ReasoningEffortId('high') }
         : { reasoningEffort: ReasoningEffortId(selection.reasoningEffort) },
+      ...selection.speed === undefined ? {} : { speed: SpeedTierId(selection.speed) },
     }),
     resolveModelInfo: (provider: string, model: string) => Promise.resolve({
       provider,
@@ -27,7 +28,7 @@ function llmRuntime(overrides: Partial<LlmRuntime> = {}): LlmRuntime {
       },
     }),
     ...overrides,
-  } as unknown as LlmRuntime
+  } as LlmRuntime
 }
 
 describe('ACP model configuration control', () => {
@@ -92,6 +93,15 @@ describe('ACP model configuration control', () => {
     const options = await control.set('reasoning_effort', 'low')
 
     expect(options.find(option => option.id === 'reasoning_effort')).toMatchObject({ currentValue: 'low' })
+  })
+
+  it('keeps a selected speed tier across an effort change and drops it with a model change', async () => {
+    const control = new AcpModelControl(llmRuntime(), { provider: 'mock', model: 'mock', speed: SpeedTierId('fast') })
+
+    await control.set('reasoning_effort', 'low')
+    expect(control.snapshot()).toEqual({ provider: 'mock', model: 'mock', reasoningEffort: 'low', speed: 'fast' })
+    await control.set('model', JSON.stringify(['mock', 'mock']))
+    expect(control.snapshot()?.speed).toBeUndefined()
   })
 
   it('exposes and restores a provider-owned reasoning default', async () => {
